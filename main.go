@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+
 	"boge.dev/golang-api/api/user"
 	database "boge.dev/golang-api/db"
 	"github.com/gofiber/fiber/v2"
@@ -25,5 +27,5 @@ func main() {
 
 	user.RegisterRoutes(app)
 
-	app.Listen(":8080")
+	app.Listen(":" + os.Getenv("APP_PORT"))
 }

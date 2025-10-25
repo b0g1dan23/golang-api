@@ -7,6 +7,6 @@ type User struct {
 	LastName  string `gorm:"type:varchar(100);not null" json:"lastname"`
 	Email     string `gorm:"type:varchar(100);uniqueIndex;not null" json:"email"`
 	Password  string `gorm:"type:varchar(255);not null" json:"-"`
-	Role      string `gorm:"type:varchar(50);not null;default:'user'" json:"role"`
+	Role      string `gorm:"type:varchar(100);not null;default:'user'" json:"role"`
 	base.BaseModel
 }

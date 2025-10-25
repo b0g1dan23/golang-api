@@ -18,9 +18,7 @@ type DbInstance struct {
 var DB DbInstance
 
 func ConnectDB() {
-	if err := godotenv.Load(); err != nil {
-		log.Fatal("No .env file found\n", err.Error())
-	}
+	_ = godotenv.Load(".env")
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=%s",
 		os.Getenv("POSTGRES_HOST"),
 		os.Getenv("POSTGRES_USER"),
