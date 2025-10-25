@@ -1,6 +1,9 @@
 package user
 
 import (
+	"errors"
+	"fmt"
+
 	database "boge.dev/golang-api/db"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -32,6 +35,9 @@ func (s *UserService) CreateUser(user *User) (*User, error) {
 func (s *UserService) GetUserByID(id string) (*User, error) {
 	var user User
 	if err := s.DB.First(&user, "id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("User with that ID not found")
+		}
 		return nil, err
 	}
 	return &user, nil
@@ -48,6 +54,9 @@ func (s *UserService) GetAllUsers() ([]User, error) {
 func (s *UserService) GetUserByEmail(email string) (*User, error) {
 	var user User
 	if err := s.DB.First(&user, "email = ?", email).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("User with that email not found")
+		}
 		return nil, err
 	}
 	return &user, nil
