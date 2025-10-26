@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -16,14 +17,16 @@ import (
 )
 
 type AuthService struct {
-	DB *gorm.DB
-	*user.UserService
+	DB          *gorm.DB
+	UserService *user.UserService
+	RateLimiter *RateLimiter
 }
 
 func NewAuthService() *AuthService {
 	return &AuthService{
 		DB:          database.DB.DB,
 		UserService: user.NewUserService(),
+		RateLimiter: NewRateLimiter(),
 	}
 }
 
@@ -54,21 +57,34 @@ func createJWTToken(data JWTData, duration time.Duration) (string, error) {
 
 	signedToken, err := token.SignedString([]byte(secret))
 	if err != nil {
-		return "", err
+		return "", ErrInvalidToken
 	}
 
 	return signedToken, nil
 }
 
 func (s *AuthService) Login(dto LoginDTO) (*LoginResponse, error) {
-	userData, err := s.UserService.GetUserByEmail(dto.Email)
-	if err != nil {
+	ctx := context.Background()
+	if err := ValidateLoginDTO(dto); err != nil {
 		return nil, err
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(userData.Password), []byte(dto.Password)); err != nil {
+	if err := s.RateLimiter.CheckRateLimit(ctx, dto.Email); err != nil {
 		return nil, err
 	}
+
+	userData, err := s.UserService.GetUserByEmail(dto.Email)
+	if err != nil {
+		s.RateLimiter.RecordFailedAttempt(ctx, dto.Email)
+		return nil, ErrInvalidCredentials
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(userData.Password), []byte(dto.Password)); err != nil {
+		s.RateLimiter.RecordFailedAttempt(ctx, dto.Email)
+		return nil, ErrInvalidCredentials
+	}
+
+	s.RateLimiter.ResetAttempts(ctx, dto.Email)
 
 	authToken, err := createJWTToken(JWTData{
 		ID:    userData.ID,

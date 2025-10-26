@@ -149,7 +149,7 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 	database.RDB.Client.Del(ctx.Context(), key)
 
 	newJTI := uuid.New().String()
-	userData, _ := c.AuthService.GetUserByID(userID)
+	userData, _ := c.AuthService.UserService.GetUserByID(userID)
 
 	refreshToken, _ := createJWTToken(JWTData{
 		ID:    userData.ID,
