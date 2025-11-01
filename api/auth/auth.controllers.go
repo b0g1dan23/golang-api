@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,8 +9,6 @@ import (
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
 	"github.com/gofiber/fiber/v2"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 type AuthController struct {
@@ -20,37 +17,6 @@ type AuthController struct {
 
 func NewAuthController() *AuthController {
 	return &AuthController{AuthService: NewAuthService()}
-}
-
-func parseJWT(tokenString string) (map[string]interface{}, error) {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		return nil, errors.New("JWT_SECRET environment variable not set")
-	}
-
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
-		}
-		return []byte(secret), nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok || !token.Valid {
-		return nil, errors.New("invalid token")
-	}
-
-	if exp, ok := claims["exp"].(float64); ok {
-		if int64(exp) < time.Now().Unix() {
-			return nil, errors.New("token expired")
-		}
-	}
-
-	return claims, nil
 }
 
 func setCookie(ctx *fiber.Ctx, data CookieData) {
@@ -103,19 +69,18 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 	refreshCookie := ctx.Cookies("__Host-refresh_token")
 	if refreshCookie == "" {
+		ctx.ClearCookie("__Host-refresh_token")
+		ctx.ClearCookie("__Secure-auth_token")
 		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "No refresh token cookie found",
 		})
 	}
 
-	claims, err := parseJWT(refreshCookie)
-	if err == nil {
-		jti, _ := claims["jti"].(string)
-		userID, _ := claims["sub"].(string)
-		if jti != "" && userID != "" {
-			key := fmt.Sprintf("refresh_token:%s:%s", userID, jti)
-			database.RDB.Client.Del(ctx.Context(), key)
-		}
+	err := c.AuthService.Logout(refreshCookie)
+	if err != nil {
+		return ctx.Status(http.StatusUnauthorized).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 
 	ctx.ClearCookie("__Host-refresh_token")
@@ -132,51 +97,28 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 		})
 	}
 
-	claims, err := parseJWT(oldToken)
+	loginRes, err := c.AuthService.RefreshToken(oldToken)
 	if err != nil {
-		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid token"})
+		return ctx.Status(http.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Token revoked, please log in again",
+		})
 	}
 
-	userID, _ := claims["sub"].(string)
-	oldJTI, _ := claims["jti"].(string)
-
-	key := fmt.Sprintf("refresh_token:%s:%s", userID, oldJTI)
-	exists, err := database.RDB.Client.Exists(ctx.Context(), key).Result()
-	if err != nil || exists == 0 {
-		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Token revoked"})
-	}
-
-	database.RDB.Client.Del(ctx.Context(), key)
-
-	newJTI := uuid.New().String()
-	userData, _ := c.AuthService.UserService.GetUserByID(userID)
-
-	refreshToken, _ := createJWTToken(JWTData{
-		ID:    userData.ID,
-		Email: userData.Email,
-		Role:  userData.Role,
-		JTI:   newJTI,
-	}, constants.MaxRefreshTokenAge)
-
-	authToken, _ := createJWTToken(JWTData{
-		ID:    userData.ID,
-		Email: userData.Email,
-		Role:  userData.Role,
-	}, constants.MaxLoginTokenAge)
-
-	key = fmt.Sprintf("refresh_token:%s:%s", userID, newJTI)
-	database.RDB.Client.Set(ctx.Context(), key, refreshToken, constants.MaxRefreshTokenAge)
+	database.RDB.Client.Set(ctx.Context(),
+		fmt.Sprintf("refresh_token:%s:%s", loginRes.User.ID, loginRes.RefreshJTI),
+		loginRes.RefreshToken,
+		constants.MaxRefreshTokenAge)
 
 	setCookie(ctx, CookieData{
 		Name:  "__Host-refresh_token",
-		Value: refreshToken,
+		Value: loginRes.RefreshToken,
 	})
 	setCookie(ctx, CookieData{
 		Name:  "__Secure-auth_token",
-		Value: authToken,
+		Value: loginRes.AuthToken,
 	})
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-		"user": userData,
+		"user": loginRes.User,
 	})
 }
