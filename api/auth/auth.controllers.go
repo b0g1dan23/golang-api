@@ -40,6 +40,9 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 		})
 	}
 
+	// Extract client IP
+	loginData.ClientIP = ctx.IP()
+
 	loginRes, err := c.AuthService.Login(loginData)
 	if err != nil {
 		return ctx.Status(http.StatusUnauthorized).JSON(fiber.Map{

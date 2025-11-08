@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"boge.dev/golang-api/api/auth"
 	"boge.dev/golang-api/api/user"
 	database "boge.dev/golang-api/db"
 	"github.com/gofiber/fiber/v2"
@@ -26,6 +27,7 @@ func main() {
 	app.Use(cors.New())
 
 	user.RegisterRoutes(app)
+	auth.RegisterAuthRoutes(app)
 
 	app.Listen(":" + os.Getenv("APP_PORT"))
 }

@@ -5,6 +5,7 @@ import "boge.dev/golang-api/api/user"
 type LoginDTO struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
+	ClientIP string `json:"-"` // Not from request body, set by controller
 }
 
 type JWTData struct {

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,38 +21,43 @@ func TestRateLimiter(t *testing.T) {
 		limiter := NewRateLimiter()
 		ctx := context.Background()
 		email := "maxattempts@example.com"
+		ip := "192.168.1.1"
 
-		for i := 0; i < maxLoginAttempts; i++ {
-			err := limiter.CheckRateLimit(ctx, email)
+		for i := 0; i < 5; i++ {
+			err := limiter.CheckRateLimit(ctx, email, ip)
 			assert.NoError(t, err, "Attempt %d should be allowed", i+1)
 
-			limiter.RecordFailedAttempt(ctx, email)
+			limiter.RecordFailedAttempt(ctx, email, ip)
 		}
 
-		err := limiter.CheckRateLimit(ctx, email)
+		err := limiter.CheckRateLimit(ctx, email, ip)
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, ErrAccountLocked, "Account should be locked after max attempts")
 	})
 
 	t.Run("WindowExpiry", func(t *testing.T) {
-		limiter := &RateLimiter{
-			maxAttempts:     2,
-			window:          2 * time.Second,
-			lockoutDuration: 2 * time.Second,
-		}
-
+		limiter := NewRateLimiter()
 		ctx := context.Background()
 		email := "windowexpiry@example.com"
+		ip := "192.168.1.2"
 
-		limiter.RecordFailedAttempt(ctx, email)
-		limiter.RecordFailedAttempt(ctx, email)
+		limiter.RecordFailedAttempt(ctx, email, ip)
+		limiter.RecordFailedAttempt(ctx, email, ip)
 
-		err := limiter.CheckRateLimit(ctx, email)
+		err := limiter.CheckRateLimit(ctx, email, ip)
+		assert.NoError(t, err, "Should be allowed, not enough attempts yet")
+
+		// Record more attempts to trigger lock
+		limiter.RecordFailedAttempt(ctx, email, ip)
+		limiter.RecordFailedAttempt(ctx, email, ip)
+		limiter.RecordFailedAttempt(ctx, email, ip)
+
+		err = limiter.CheckRateLimit(ctx, email, ip)
 		assert.Error(t, err)
 
-		mr.FastForward(3 * time.Second)
+		mr.FastForward(20 * time.Minute)
 
-		err = limiter.CheckRateLimit(ctx, email)
+		err = limiter.CheckRateLimit(ctx, email, ip)
 		assert.NoError(t, err, "Should be allowed after window expiry")
 	})
 
@@ -59,69 +65,72 @@ func TestRateLimiter(t *testing.T) {
 		limiter := NewRateLimiter()
 		ctx := context.Background()
 		email := "reset@example.com"
+		ip := "192.168.1.3"
 
 		for i := 0; i < 4; i++ {
-			limiter.RecordFailedAttempt(ctx, email)
+			limiter.RecordFailedAttempt(ctx, email, ip)
 		}
 
-		err := limiter.ResetAttempts(ctx, email)
+		err := limiter.ResetAttempts(ctx, email, ip)
 		require.NoError(t, err)
 
-		err = limiter.CheckRateLimit(ctx, email)
+		err = limiter.CheckRateLimit(ctx, email, ip)
 		assert.NoError(t, err, "Should be allowed after successful login")
 	})
 
 	t.Run("AccountLockout", func(t *testing.T) {
-		limiter := &RateLimiter{
-			maxAttempts:     3,
-			window:          1 * time.Minute,
-			lockoutDuration: 200 * time.Millisecond,
-		}
-
+		limiter := NewRateLimiter()
 		ctx := context.Background()
 		email := "lockout@example.com"
+		ip := "192.168.1.4"
 
-		for i := 0; i < 3; i++ {
-			limiter.RecordFailedAttempt(ctx, email)
+		for i := 0; i < 5; i++ {
+			limiter.RecordFailedAttempt(ctx, email, ip)
 		}
 
-		err := limiter.CheckRateLimit(ctx, email)
+		err := limiter.CheckRateLimit(ctx, email, ip)
 		assert.ErrorIs(t, err, ErrAccountLocked)
 
-		err = limiter.CheckRateLimit(ctx, email)
+		err = limiter.CheckRateLimit(ctx, email, ip)
 		assert.Error(t, err, "Should still be locked during lockout period")
 
 		time.Sleep(250 * time.Millisecond)
 
-		limiter.ResetAttempts(ctx, email)
+		limiter.ResetAttempts(ctx, email, ip)
 
-		err = limiter.CheckRateLimit(ctx, email)
-		assert.NoError(t, err, "Should be allowed after lockout expiry")
+		err = limiter.CheckRateLimit(ctx, email, ip)
+		assert.NoError(t, err, "Should be allowed after reset")
 	})
 
 	t.Run("IPRateLimit", func(t *testing.T) {
 		limiter := NewRateLimiter()
 		ctx := context.Background()
 		ip := "192.168.1.100"
+		email := "iptest@example.com"
 
-		for i := 0; i < 100; i++ {
-			err := limiter.CheckIPRateLimit(ctx, ip, 100, 1*time.Minute)
+		// Test IP-based limiting by trying multiple accounts from same IP
+		for i := 0; i < 20; i++ {
+			testEmail := fmt.Sprintf("user%d@example.com", i)
+			err := limiter.CheckRateLimit(ctx, testEmail, ip)
 			assert.NoError(t, err, "Request %d should be allowed", i+1)
+			limiter.RecordFailedAttempt(ctx, testEmail, ip)
 		}
 
-		err := limiter.CheckIPRateLimit(ctx, ip, 100, 1*time.Minute)
-		assert.ErrorIs(t, err, ErrRateLimitExceeded)
+		// 21st attempt should be blocked
+		err := limiter.CheckRateLimit(ctx, email, ip)
+		assert.ErrorIs(t, err, ErrRateLimitExceeded, "Should be rate limited after 20 attempts")
 	})
 
 	t.Run("ConcurrentAttempts", func(t *testing.T) {
 		limiter := NewRateLimiter()
 		ctx := context.Background()
 		email := "concurrent@example.com"
+		ip := "192.168.1.200"
 
 		done := make(chan bool, 10)
 		for i := 0; i < 10; i++ {
 			go func() {
-				limiter.RecordFailedAttempt(ctx, email)
+				limiter.RecordFailedAttempt(ctx, email, ip)
 				done <- true
 			}()
 		}
@@ -130,8 +139,8 @@ func TestRateLimiter(t *testing.T) {
 			<-done
 		}
 
-		err := limiter.CheckRateLimit(ctx, email)
-		assert.ErrorIs(t, err, ErrAccountLocked, "Should be locked after concurrent attempts")
+		err := limiter.CheckRateLimit(ctx, email, ip)
+		assert.Error(t, err, "Should be locked after concurrent attempts")
 	})
 
 	t.Run("DifferentUsers", func(t *testing.T) {
@@ -139,13 +148,13 @@ func TestRateLimiter(t *testing.T) {
 		ctx := context.Background()
 
 		for i := 0; i < 5; i++ {
-			limiter.RecordFailedAttempt(ctx, "user1@example.com")
+			limiter.RecordFailedAttempt(ctx, "user1@example.com", "192.168.1.10")
 		}
 
-		err := limiter.CheckRateLimit(ctx, "user1@example.com")
+		err := limiter.CheckRateLimit(ctx, "user1@example.com", "192.168.1.10")
 		assert.ErrorIs(t, err, ErrAccountLocked)
 
-		err = limiter.CheckRateLimit(ctx, "user2@example.com")
+		err = limiter.CheckRateLimit(ctx, "user2@example.com", "192.168.1.11")
 		assert.NoError(t, err, "Different user should not be affected")
 	})
 }

@@ -602,17 +602,12 @@ func TestAuthService_Login_WithRateLimiting(t *testing.T) {
 		testutils.CreateTestUser(t, testDB, email, password)
 
 		service := NewAuthService()
-		service.RateLimiter = &RateLimiter{
-			maxAttempts:     3,
-			window:          1 * time.Minute,
-			lockoutDuration: 200 * time.Millisecond,
+
+		for i := 0; i < 5; i++ {
+			service.Login(LoginDTO{Email: email, Password: password + "wrong", ClientIP: "192.168.1.100"})
 		}
 
-		for i := 0; i < 3; i++ {
-			service.Login(LoginDTO{Email: email, Password: password + "wrong"})
-		}
-
-		_, err := service.Login(LoginDTO{Email: email, Password: password})
+		_, err := service.Login(LoginDTO{Email: email, Password: password, ClientIP: "192.168.1.100"})
 		assert.ErrorIs(t, err, ErrAccountLocked)
 
 		time.Sleep(250 * time.Millisecond)

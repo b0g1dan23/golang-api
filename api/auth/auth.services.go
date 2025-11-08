@@ -101,22 +101,28 @@ func (s *AuthService) Login(dto LoginDTO) (*LoginResponse, error) {
 		return nil, err
 	}
 
-	if err := s.RateLimiter.CheckRateLimit(ctx, dto.Email); err != nil {
+	// Get client IP from context (should be passed from controller)
+	clientIP := dto.ClientIP
+	if clientIP == "" {
+		clientIP = "unknown"
+	}
+
+	if err := s.RateLimiter.CheckRateLimit(ctx, dto.Email, clientIP); err != nil {
 		return nil, err
 	}
 
 	userData, err := s.UserService.GetUserByEmail(dto.Email)
 	if err != nil {
-		s.RateLimiter.RecordFailedAttempt(ctx, dto.Email)
+		s.RateLimiter.RecordFailedAttempt(ctx, dto.Email, clientIP)
 		return nil, ErrInvalidCredentials
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(userData.Password), []byte(dto.Password)); err != nil {
-		s.RateLimiter.RecordFailedAttempt(ctx, dto.Email)
+		s.RateLimiter.RecordFailedAttempt(ctx, dto.Email, clientIP)
 		return nil, ErrInvalidCredentials
 	}
 
-	s.RateLimiter.ResetAttempts(ctx, dto.Email)
+	s.RateLimiter.ResetAttempts(ctx, dto.Email, clientIP)
 
 	authToken, err := createJWTToken(JWTData{
 		ID:    userData.ID,
@@ -213,9 +219,9 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 		return nil, ErrTokenRevoked
 	}
 
-	subVal, _ := claims["sub"]
-	emailVal, _ := claims["email"]
-	roleVal, _ := claims["role"]
+	subVal := claims["sub"]
+	emailVal := claims["email"]
+	roleVal := claims["role"]
 	subStr := ""
 	emailStr := ""
 	roleStr := ""

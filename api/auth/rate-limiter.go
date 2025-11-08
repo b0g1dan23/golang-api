@@ -9,89 +9,156 @@ import (
 )
 
 const (
-	rateLimitWindow  = 15 * time.Minute
-	maxLoginAttempts = 5
-	lockoutDuration  = 30 * time.Minute
+	// Email-based limits (softer - to prevent account lockout attacks)
+	emailRateLimitWindow = 15 * time.Minute
+	maxEmailAttempts     = 10               // Higher threshold for email
+	emailLockoutDuration = 15 * time.Minute // Shorter lockout
 
-	loginAttemptsKey = "login_attempts:%s"
-	accountLockedKey = "account_locked:%s"
-	ipRateLimitKey   = "ip_rate_limit:%s"
+	// IP-based limits (stricter - to prevent brute force)
+	ipRateLimitWindow = 15 * time.Minute
+	maxIPAttempts     = 20 // Can try multiple accounts
+	ipLockoutDuration = 30 * time.Minute
+
+	// Combined (email + IP) limits (strictest)
+	maxEmailIPAttempts = 5 // Same email from same IP
+
+	loginAttemptsKey   = "login_attempts:%s"       // email
+	accountLockedKey   = "account_locked:%s"       // email
+	ipAttemptsKey      = "ip_attempts:%s"          // IP
+	ipLockedKey        = "ip_locked:%s"            // IP
+	emailIPAttemptsKey = "email_ip_attempts:%s:%s" // email:IP
 )
 
 type RateLimiter struct {
-	maxAttempts     int
-	window          time.Duration
-	lockoutDuration time.Duration
+	emailRateLimitWindow time.Duration
+	maxEmailAttempts     int
+	emailLockoutDuration time.Duration
+
+	ipRateLimitWindow time.Duration
+	maxIPAttempts     int
+	ipLockoutDuration time.Duration
+
+	maxEmailIPAttempts int
 }
 
 func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{
-		maxAttempts:     maxLoginAttempts,
-		window:          rateLimitWindow,
-		lockoutDuration: lockoutDuration,
+		emailRateLimitWindow: emailRateLimitWindow,
+		maxEmailAttempts:     maxEmailAttempts,
+		emailLockoutDuration: emailLockoutDuration,
+		ipRateLimitWindow:    ipRateLimitWindow,
+		maxIPAttempts:        maxIPAttempts,
+		ipLockoutDuration:    ipLockoutDuration,
+		maxEmailIPAttempts:   maxEmailIPAttempts,
 	}
 }
 
-func (rl *RateLimiter) CheckRateLimit(ctx context.Context, email string) error {
-	lockedKey := fmt.Sprintf(accountLockedKey, email)
-	locked, err := database.RDB.Client.Get(ctx, lockedKey).Result()
+// CheckRateLimit checks both email and IP-based rate limits
+// This prevents account lockout attacks while still protecting against brute force
+func (rl *RateLimiter) CheckRateLimit(ctx context.Context, email string, ip string) error {
+	// Check if email is locked (softer limit)
+	emailLockedKey := fmt.Sprintf(accountLockedKey, email)
+	locked, err := database.RDB.Client.Get(ctx, emailLockedKey).Result()
 	if err == nil && locked == "1" {
 		return ErrAccountLocked
 	}
 
-	attemptsKey := fmt.Sprintf(loginAttemptsKey, email)
-	attemptsStr, err := database.RDB.Client.Get(ctx, attemptsKey).Int()
-	if err != nil && err.Error() != "redis: nil" {
-		return fmt.Errorf("rate limit check failed: %w", err)
+	// Check if IP is locked (stricter limit)
+	ipLockedKey := fmt.Sprintf(ipLockedKey, ip)
+	ipLocked, err := database.RDB.Client.Get(ctx, ipLockedKey).Result()
+	if err == nil && ipLocked == "1" {
+		return ErrRateLimitExceeded
 	}
 
-	if attemptsStr >= rl.maxAttempts {
-		database.RDB.Client.Set(ctx, lockedKey, "1", rl.lockoutDuration)
+	// Check email attempts
+	emailAttemptsKey := fmt.Sprintf(loginAttemptsKey, email)
+	emailAttempts, _ := database.RDB.Client.Get(ctx, emailAttemptsKey).Int()
+
+	// Check IP attempts
+	ipAttemptsKeyStr := fmt.Sprintf(ipAttemptsKey, ip)
+	ipAttempts, _ := database.RDB.Client.Get(ctx, ipAttemptsKeyStr).Int()
+
+	// Check combined email+IP attempts (strictest)
+	emailIPKey := fmt.Sprintf(emailIPAttemptsKey, email, ip)
+	emailIPAttempts, _ := database.RDB.Client.Get(ctx, emailIPKey).Int()
+
+	// Lock if too many attempts from same email+IP combination
+	if emailIPAttempts >= maxEmailIPAttempts {
+		database.RDB.Client.Set(ctx, emailLockedKey, "1", emailLockoutDuration)
 		return ErrAccountLocked
+	}
+
+	// Lock if too many attempts for this email (from any IP)
+	if emailAttempts >= maxEmailAttempts {
+		database.RDB.Client.Set(ctx, emailLockedKey, "1", emailLockoutDuration)
+		return ErrAccountLocked
+	}
+
+	// Lock if too many attempts from this IP (trying multiple accounts)
+	if ipAttempts >= maxIPAttempts {
+		database.RDB.Client.Set(ctx, ipLockedKey, "1", ipLockoutDuration)
+		return ErrRateLimitExceeded
 	}
 
 	return nil
 }
 
-func (rl *RateLimiter) RecordFailedAttempt(ctx context.Context, email string) error {
-	attemptsKey := fmt.Sprintf(loginAttemptsKey, email)
+// RecordFailedAttempt records a failed login attempt for both email and IP
+func (rl *RateLimiter) RecordFailedAttempt(ctx context.Context, email string, ip string) error {
+	emailAttemptsKey := fmt.Sprintf(loginAttemptsKey, email)
+	ipAttemptsKeyStr := fmt.Sprintf(ipAttemptsKey, ip)
+	emailIPKey := fmt.Sprintf(emailIPAttemptsKey, email, ip)
 
 	pipe := database.RDB.Client.Pipeline()
-	pipe.Incr(ctx, attemptsKey)
-	pipe.Expire(ctx, attemptsKey, rl.window)
+
+	// Increment email attempts
+	pipe.Incr(ctx, emailAttemptsKey)
+	pipe.Expire(ctx, emailAttemptsKey, emailRateLimitWindow)
+
+	// Increment IP attempts
+	pipe.Incr(ctx, ipAttemptsKeyStr)
+	pipe.Expire(ctx, ipAttemptsKeyStr, ipRateLimitWindow)
+
+	// Increment email+IP attempts
+	pipe.Incr(ctx, emailIPKey)
+	pipe.Expire(ctx, emailIPKey, emailRateLimitWindow)
 
 	_, err := pipe.Exec(ctx)
 	return err
 }
 
-func (rl *RateLimiter) ResetAttempts(ctx context.Context, email string) error {
-	attemptsKey := fmt.Sprintf(loginAttemptsKey, email)
-	lockedKey := fmt.Sprintf(accountLockedKey, email)
+// ResetAttempts clears all attempts for email and IP after successful login
+func (rl *RateLimiter) ResetAttempts(ctx context.Context, email string, ip string) error {
+	emailAttemptsKey := fmt.Sprintf(loginAttemptsKey, email)
+	emailLockedKey := fmt.Sprintf(accountLockedKey, email)
+	ipAttemptsKeyStr := fmt.Sprintf(ipAttemptsKey, ip)
+	ipLockedKey := fmt.Sprintf(ipLockedKey, ip)
+	emailIPKey := fmt.Sprintf(emailIPAttemptsKey, email, ip)
 
 	pipe := database.RDB.Client.Pipeline()
-	pipe.Del(ctx, attemptsKey)
-	pipe.Del(ctx, lockedKey)
+	pipe.Del(ctx, emailAttemptsKey)
+	pipe.Del(ctx, emailLockedKey)
+	pipe.Del(ctx, ipAttemptsKeyStr)
+	pipe.Del(ctx, ipLockedKey)
+	pipe.Del(ctx, emailIPKey)
 
 	_, err := pipe.Exec(ctx)
 	return err
 }
 
-func (rl *RateLimiter) CheckIPRateLimit(ctx context.Context, ip string, maxRequests int, window time.Duration) error {
-	key := fmt.Sprintf(ipRateLimitKey, ip)
+// GetRemainingAttempts returns info about remaining attempts (for debugging/logging)
+func (rl *RateLimiter) GetRemainingAttempts(ctx context.Context, email string, ip string) map[string]int {
+	emailAttemptsKey := fmt.Sprintf(loginAttemptsKey, email)
+	ipAttemptsKeyStr := fmt.Sprintf(ipAttemptsKey, ip)
+	emailIPKey := fmt.Sprintf(emailIPAttemptsKey, email, ip)
 
-	count, err := database.RDB.Client.Get(ctx, key).Int()
-	if err != nil && err.Error() != "redis: nil" {
-		return err
+	emailAttempts, _ := database.RDB.Client.Get(ctx, emailAttemptsKey).Int()
+	ipAttempts, _ := database.RDB.Client.Get(ctx, ipAttemptsKeyStr).Int()
+	emailIPAttempts, _ := database.RDB.Client.Get(ctx, emailIPKey).Int()
+
+	return map[string]int{
+		"email_attempts":    maxEmailAttempts - emailAttempts,
+		"ip_attempts":       maxIPAttempts - ipAttempts,
+		"email_ip_attempts": maxEmailIPAttempts - emailIPAttempts,
 	}
-
-	if count >= maxRequests {
-		return ErrRateLimitExceeded
-	}
-
-	pipe := database.RDB.Client.Pipeline()
-	pipe.Incr(ctx, key)
-	pipe.Expire(ctx, key, window)
-	_, err = pipe.Exec(ctx)
-
-	return err
 }
