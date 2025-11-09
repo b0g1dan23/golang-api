@@ -101,6 +101,12 @@ jobs:
           go-version: "1.25"
           cache: true
 
+      - name: Check Go version
+        run: go version
+
+      - name: Install dependencies
+        run: go mod download
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
