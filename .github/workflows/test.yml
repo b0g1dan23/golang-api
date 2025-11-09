@@ -58,10 +58,25 @@ jobs:
 
       - name: Run tests
         env:
-          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb?sslmode=disable
-          REDIS_URL: redis://localhost:6379
-          JWT_SECRET: test-secret-key-for-ci-testing-minimum-32-chars
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+
+          TEST_POSTGRES_HOST: localhost
+          TEST_POSTGRES_PORT: 5432
+          TEST_POSTGRES_USER: testuser
+          TEST_POSTGRES_PASSWORD: testpass
+          TEST_POSTGRES_DB: testdb
+
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          REDIS_PASSWORD: ""
+
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
           GO_ENV: test
+          APP_PORT: 8080
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage to Codecov
