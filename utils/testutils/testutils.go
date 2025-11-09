@@ -43,17 +43,20 @@ func SetupTestConfig(t *testing.T) {
 		"TEST_POSTGRES_PORT":     os.Getenv("TEST_POSTGRES_PORT"),
 	}
 
-	jwtSecret := generateSecureTestSecret(t)
+	jwtSecret, err := generateSecureTestSecret(t)
+	if err != nil {
+		t.Fatalf("Failed to generate secure test JWT secret: %v", err)
+	}
 
-	os.Setenv("JWT_SECRET", jwtSecret)
-	os.Setenv("GO_ENV", "test")
+	_ = os.Setenv("JWT_SECRET", jwtSecret)
+	_ = os.Setenv("GO_ENV", "test")
 
 	t.Cleanup(func() {
 		for key, val := range originalEnv {
 			if val == "" {
-				os.Unsetenv(key)
+				_ = os.Unsetenv(key)
 			} else {
-				os.Setenv(key, val)
+				_ = os.Setenv(key, val)
 			}
 		}
 		testConfigMutex.Unlock()
@@ -62,8 +65,11 @@ func SetupTestConfig(t *testing.T) {
 
 func RestoreTestJWTSecret(t *testing.T) {
 	t.Helper()
-	jwtSecret := generateSecureTestSecret(t)
-	os.Setenv("JWT_SECRET", jwtSecret)
+	jwtSecret, err := generateSecureTestSecret(t)
+	if err != nil {
+		t.Fatalf("Failed to generate secure test JWT secret: %v", err)
+	}
+	_ = os.Setenv("JWT_SECRET", jwtSecret)
 }
 
 func ValidateJWTSecret(secret string) error {
@@ -93,16 +99,21 @@ func ValidateJWTSecret(secret string) error {
 	return nil
 }
 
-func generateSecureTestSecret(t *testing.T) string {
+func generateSecureTestSecret(t *testing.T) (string, error) {
 	t.Helper()
 
-	secretBytes := make([]byte, 32)
-	_, err := rand.Read(secretBytes)
-	if err != nil {
-		t.Fatalf("Failed to generate secure test JWT secret: %v", err)
+	bytes := make([]byte, 64)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}
 
-	return base64.StdEncoding.EncodeToString(secretBytes)
+	secret := base64.URLEncoding.EncodeToString(bytes)
+
+	if len(secret) < 32 {
+		return "", errors.New("generated secret is too short")
+	}
+
+	return secret, nil
 }
 
 func SetupFailingDB(t *testing.T) *gorm.DB {
@@ -215,7 +226,9 @@ func SetupTestDB(t *testing.T) *gorm.DB {
 
 		sqlDB, err := db.DB()
 		if err == nil {
-			sqlDB.Close()
+			if closeErr := sqlDB.Close(); closeErr != nil {
+				t.Logf("Warning: Failed to close test database: %v", closeErr)
+			}
 		}
 	})
 
