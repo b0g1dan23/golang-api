@@ -820,13 +820,20 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		require.NoError(t, err)
 
 		result, err := service.RefreshToken(tokenString)
-		assert.NoError(t, err)
+		assert.NoError(t, err, "Refresh should succeed even without exp claim")
 		assert.NotNil(t, result)
+		assert.NotEmpty(t, result.AuthToken)
+		assert.NotEmpty(t, result.RefreshToken)
 
 		ctx := context.Background()
 		blacklistKey := fmt.Sprintf("refresh_blacklist:%s", jti)
-		_, err = database.RDB.Client.Get(ctx, blacklistKey).Result()
-		assert.Error(t, err)
+		val, err := database.RDB.Client.Get(ctx, blacklistKey).Result()
+		assert.NoError(t, err, "Token should be blacklisted")
+		assert.Equal(t, "1", val)
+
+		ttl, err := database.RDB.Client.TTL(ctx, blacklistKey).Result()
+		assert.NoError(t, err)
+		assert.True(t, ttl == -1 || ttl > 0, "TTL should be -1 or positive, got %v", ttl)
 	})
 
 	t.Run("Refresh token with different exp claim types", func(t *testing.T) {
@@ -1016,41 +1023,95 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	})
 
 	t.Run("Concurrent refresh attempts with same token", func(t *testing.T) {
+		concurentTestUser := testutils.CreateTestUser(t, testDB, "concurent-refresh@gmail.com", "TestPassword123!")
+
 		jwtTokenData := JWTData{
-			ID:    sharedTestUser.ID,
-			Role:  sharedTestUser.Role,
-			Email: sharedTestUser.Email,
+			ID:    concurentTestUser.ID,
+			Role:  concurentTestUser.Role,
+			Email: concurentTestUser.Email,
 			JTI:   uuid.New().String(),
 		}
 
 		refreshToken, err := createJWTToken(jwtTokenData, 7*24*time.Hour)
 		require.NoError(t, err)
 
-		var wg sync.WaitGroup
-		results := make([]*LoginResponse, 5)
-		errors := make([]error, 5)
+		const numGoRoutines = 10
+		results := make(chan *LoginResponse, numGoRoutines)
+		errors := make(chan error, numGoRoutines)
 
-		for i := 0; i < 5; i++ {
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+
+		for i := 0; i < numGoRoutines; i++ {
 			wg.Add(1)
-			go func(idx int) {
+			go func(id int) {
 				defer wg.Done()
-				results[idx], errors[idx] = service.RefreshToken(refreshToken)
+
+				<-start
+
+				res, err := service.RefreshToken(refreshToken)
+				results <- res
+				errors <- err
 			}(i)
 		}
 
+		close(start)
+
 		wg.Wait()
 
+		close(results)
+		close(errors)
+
 		successCount := 0
-		for i := 0; i < 5; i++ {
-			if errors[i] == nil {
+		errorCount := 0
+		var successfulResult *LoginResponse
+
+		for i := 0; i < numGoRoutines; i++ {
+			result := <-results
+			err := <-errors
+
+			if err == nil {
 				successCount++
-				assert.NotNil(t, results[i])
+				if successfulResult == nil {
+					successfulResult = result
+				}
+				assert.NotNil(t, result)
+				assert.NotNil(t, result.User, "User should be populated")
+				assert.Equal(t, concurentTestUser.ID, result.User.ID)
 			} else {
-				assert.Equal(t, ErrTokenRevoked, errors[i])
+				errorCount++
+				assert.ErrorIs(t, err, ErrTokenRevoked, "Failed attempts should get token revoked error")
 			}
 		}
 
-		assert.Greater(t, successCount, 0, "At least one refresh should succeed")
+		t.Logf("Success: %d, Errors: %d", successCount, errorCount)
+
+		assert.Equal(t, 1, successCount, "Exactly one refresh should succeed with SETNX")
+		assert.Equal(t, numGoRoutines-1, errorCount, "The rest of the refresh attempts should fail")
+
+		ctx := context.Background()
+		blacklistKey := fmt.Sprintf("refresh_blacklist:%s", jwtTokenData.JTI)
+		val, err := database.RDB.Client.Get(ctx, blacklistKey).Result()
+		assert.NoError(t, err)
+		assert.Equal(t, "1", val, "Original token should be blacklisted")
+
+		if successfulResult != nil {
+			assert.NotEmpty(t, successfulResult.AuthToken)
+			assert.NotEmpty(t, successfulResult.RefreshToken)
+			assert.NotEmpty(t, successfulResult.RefreshJTI)
+			assert.NotEqual(t, jwtTokenData.JTI, successfulResult.RefreshJTI)
+
+			// Verify the new refresh token works
+			newResult, err := service.RefreshToken(successfulResult.RefreshToken)
+			assert.NoError(t, err)
+			assert.NotNil(t, newResult)
+		}
+
+		// Try to use original token again - should fail
+		failedResult, err := service.RefreshToken(refreshToken)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrTokenRevoked)
+		assert.Nil(t, failedResult)
 	})
 
 	t.Run("Refresh token blacklist TTL is properly calculated", func(t *testing.T) {

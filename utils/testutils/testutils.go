@@ -184,6 +184,8 @@ func ParseJWTClaimsAllowExpired(t *testing.T, tokenString string) (jwt.MapClaims
 }
 
 func SetupTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
 	_ = godotenv.Load("../../.env")
 
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Europe/Belgrade",
@@ -206,16 +208,9 @@ func SetupTestDB(t *testing.T) *gorm.DB {
 		t.Fatal("Failed to migrate test database\n", err.Error())
 	}
 
-	tx := db.Begin()
-	if tx.Error != nil {
-		t.Fatal("Failed to begin transaction for test database\n", tx.Error.Error())
-	}
+	CleanupTestDB(t, db)
 
 	t.Cleanup(func() {
-		if err := tx.Rollback().Error; err != nil {
-			t.Logf("Warning: Failed to rollback transaction: %v", err)
-		}
-
 		CleanupTestDB(t, db)
 
 		sqlDB, err := db.DB()
@@ -224,7 +219,7 @@ func SetupTestDB(t *testing.T) *gorm.DB {
 		}
 	})
 
-	return tx
+	return db
 }
 
 func SetupTestRedis(t *testing.T) *miniredis.Miniredis {

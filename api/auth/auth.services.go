@@ -223,11 +223,12 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 	}
 
 	blacklistKey := fmt.Sprintf("refresh_blacklist:%s", jti)
-	exists, err := database.RDB.Client.Exists(ctx, blacklistKey).Result()
+	exists, err := database.RDB.Client.SetNX(ctx, blacklistKey, "1", 0).Result()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to check blacklist: %w", err)
 	}
-	if exists > 0 {
+
+	if !exists {
 		return nil, ErrTokenRevoked
 	}
 
