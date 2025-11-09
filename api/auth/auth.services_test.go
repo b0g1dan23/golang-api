@@ -49,7 +49,7 @@ func TestCreateJWTToken(t *testing.T) {
 	})
 
 	t.Run("NoSecret", func(t *testing.T) {
-		os.Unsetenv("JWT_SECRET")
+		_ = os.Unsetenv("JWT_SECRET")
 		t.Cleanup(func() {
 			testutils.RestoreTestJWTSecret(t)
 		})
