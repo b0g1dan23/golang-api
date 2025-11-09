@@ -84,19 +84,25 @@ func (rl *RateLimiter) CheckRateLimit(ctx context.Context, email string, ip stri
 
 	// Lock if too many attempts from same email+IP combination
 	if emailIPAttempts >= maxEmailIPAttempts {
-		database.RDB.Client.Set(ctx, emailLockedKey, "1", emailLockoutDuration)
+		if err := database.RDB.Client.Set(ctx, emailLockedKey, "1", emailLockoutDuration).Err(); err != nil {
+			return fmt.Errorf("failed to set email lockout: %w", err)
+		}
 		return ErrAccountLocked
 	}
 
 	// Lock if too many attempts for this email (from any IP)
 	if emailAttempts >= maxEmailAttempts {
-		database.RDB.Client.Set(ctx, emailLockedKey, "1", emailLockoutDuration)
+		if err := database.RDB.Client.Set(ctx, emailLockedKey, "1", emailLockoutDuration).Err(); err != nil {
+			return fmt.Errorf("failed to set email lockout: %w", err)
+		}
 		return ErrAccountLocked
 	}
 
 	// Lock if too many attempts from this IP (trying multiple accounts)
 	if ipAttempts >= maxIPAttempts {
-		database.RDB.Client.Set(ctx, ipLockedKey, "1", ipLockoutDuration)
+		if err := database.RDB.Client.Set(ctx, ipLockedKey, "1", ipLockoutDuration).Err(); err != nil {
+			return fmt.Errorf("failed to set IP lockout: %w", err)
+		}
 		return ErrRateLimitExceeded
 	}
 

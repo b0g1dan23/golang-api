@@ -581,7 +581,8 @@ func TestAuthService_Login_WithRateLimiting(t *testing.T) {
 		service := NewAuthService()
 
 		for i := 0; i < 4; i++ {
-			service.Login(LoginDTO{Email: email, Password: password + "wrong"})
+			_, err := service.Login(LoginDTO{Email: email, Password: password + "wrong"})
+			assert.ErrorIs(t, err, ErrInvalidCredentials, "Attempt %d should fail", i+1)
 		}
 
 		result, err := service.Login(LoginDTO{Email: email, Password: password})
@@ -589,7 +590,8 @@ func TestAuthService_Login_WithRateLimiting(t *testing.T) {
 		assert.NotNil(t, result)
 
 		for i := 0; i < 5; i++ {
-			service.Login(LoginDTO{Email: email, Password: password + "wrong"})
+			_, err := service.Login(LoginDTO{Email: email, Password: password + "wrong"})
+			assert.ErrorIs(t, err, ErrInvalidCredentials, "Attempt %d should fail", i+1)
 		}
 
 		_, err = service.Login(LoginDTO{Email: email, Password: password})
@@ -604,7 +606,8 @@ func TestAuthService_Login_WithRateLimiting(t *testing.T) {
 		service := NewAuthService()
 
 		for i := 0; i < 5; i++ {
-			service.Login(LoginDTO{Email: email, Password: password + "wrong", ClientIP: "192.168.1.100"})
+			_, err := service.Login(LoginDTO{Email: email, Password: password + "wrong", ClientIP: "192.168.1.100"})
+			assert.ErrorIs(t, err, ErrInvalidCredentials, "Attempt %d should fail", i+1)
 		}
 
 		_, err := service.Login(LoginDTO{Email: email, Password: password, ClientIP: "192.168.1.100"})
@@ -628,11 +631,14 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 	service := NewAuthService()
 
+	// Create a shared test user for all refresh token tests
+	sharedTestUser := testutils.CreateTestUser(t, testDB, testEmail, "TestPassword123!")
+
 	t.Run("Successfully refresh token with valid refresh token", func(t *testing.T) {
 		jwtTokenData := JWTData{
-			ID:    "123",
-			Role:  "user",
-			Email: testEmail,
+			ID:    sharedTestUser.ID,
+			Role:  sharedTestUser.Role,
+			Email: sharedTestUser.Email,
 			JTI:   uuid.New().String(),
 		}
 
@@ -643,6 +649,8 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		result, err := service.RefreshToken(oldRefreshToken)
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
+		assert.NotNil(t, result.User, "User should be populated")
+		assert.Equal(t, sharedTestUser.ID, result.User.ID)
 		assert.NotEmpty(t, result.AuthToken)
 		assert.NotEmpty(t, result.RefreshToken)
 		assert.NotEmpty(t, result.RefreshJTI)
@@ -674,7 +682,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 	t.Run("Refresh token without JTI claim", func(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"sub":   "123",
+			"sub":   sharedTestUser.ID,
 			"email": testEmail,
 			"role":  "user",
 			"exp":   time.Now().Add(1 * time.Hour).Unix(),
@@ -692,7 +700,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 	t.Run("Refresh token with empty JTI", func(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"sub":   "123",
+			"sub":   sharedTestUser.ID,
 			"email": testEmail,
 			"role":  "user",
 			"jti":   "", // Empty JTI
@@ -710,7 +718,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 	t.Run("Refresh token with non-string JTI", func(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"sub":   "123",
+			"sub":   sharedTestUser.ID,
 			"email": testEmail,
 			"role":  "user",
 			"jti":   12345, // Non-string JTI
@@ -752,20 +760,25 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	})
 
 	t.Run("Refresh token with different sub claim types", func(t *testing.T) {
+		// Create additional test users for this specific test
+		user1 := testutils.CreateTestUser(t, testDB, "user789@example.com", "Test123!")
+		user2 := testutils.CreateTestUser(t, testDB, "user101112@example.com", "Test123!")
+
 		testCases := []struct {
 			name        string
 			subValue    interface{}
 			expectedSub string
+			email       string
 		}{
-			{"string sub", "789", "789"},
-			{"float64 sub", float64(101112), "101112"},
+			{"string sub", user1.ID, user1.ID, user1.Email},
+			{"float64 sub", user2.ID, user2.ID, user2.Email},
 		}
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 					"sub":   tc.subValue,
-					"email": testEmail,
+					"email": tc.email,
 					"role":  "admin",
 					"jti":   uuid.New().String(),
 					"exp":   time.Now().Add(1 * time.Hour).Unix(),
@@ -796,7 +809,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	t.Run("Refresh token without exp claim", func(t *testing.T) {
 		jti := uuid.New().String()
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"sub":   "123",
+			"sub":   sharedTestUser.ID,
 			"email": testEmail,
 			"role":  "user",
 			"jti":   jti,
@@ -830,9 +843,9 @@ func TestAuthService_RefreshToken(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				jti := uuid.New().String()
 				token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-					"sub":   "test",
-					"email": testEmail,
-					"role":  "user",
+					"sub":   sharedTestUser.ID,
+					"email": sharedTestUser.Email,
+					"role":  sharedTestUser.Role,
 					"jti":   jti,
 					"exp":   tc.expType,
 				})
@@ -892,9 +905,9 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 	t.Run("Refresh token preserves all user data", func(t *testing.T) {
 		jwtTokenData := JWTData{
-			ID:    "999",
-			Role:  "admin",
-			Email: "admin@test.com",
+			ID:    sharedTestUser.ID,
+			Role:  sharedTestUser.Role,
+			Email: sharedTestUser.Email,
 			JTI:   uuid.New().String(),
 		}
 
@@ -922,9 +935,9 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 	t.Run("Cannot reuse refresh token after refresh", func(t *testing.T) {
 		jwtTokenData := JWTData{
-			ID:    "1001",
-			Role:  "user",
-			Email: testEmail,
+			ID:    sharedTestUser.ID,
+			Role:  sharedTestUser.Role,
+			Email: sharedTestUser.Email,
 			JTI:   uuid.New().String(),
 		}
 
@@ -943,9 +956,9 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 	t.Run("Multiple sequential refreshes create valid token chain", func(t *testing.T) {
 		jwtTokenData := JWTData{
-			ID:    "2001",
-			Role:  "user",
-			Email: testEmail,
+			ID:    sharedTestUser.ID,
+			Role:  sharedTestUser.Role,
+			Email: sharedTestUser.Email,
 			JTI:   uuid.New().String(),
 		}
 
@@ -1004,9 +1017,9 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 	t.Run("Concurrent refresh attempts with same token", func(t *testing.T) {
 		jwtTokenData := JWTData{
-			ID:    "3001",
-			Role:  "user",
-			Email: testEmail,
+			ID:    sharedTestUser.ID,
+			Role:  sharedTestUser.Role,
+			Email: sharedTestUser.Email,
 			JTI:   uuid.New().String(),
 		}
 
@@ -1045,7 +1058,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		expTime := time.Now().Add(30 * time.Minute)
 
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"sub":   "123",
+			"sub":   sharedTestUser.ID,
 			"email": testEmail,
 			"role":  "user",
 			"jti":   jti,

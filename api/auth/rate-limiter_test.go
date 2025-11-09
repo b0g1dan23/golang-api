@@ -27,7 +27,7 @@ func TestRateLimiter(t *testing.T) {
 			err := limiter.CheckRateLimit(ctx, email, ip)
 			assert.NoError(t, err, "Attempt %d should be allowed", i+1)
 
-			limiter.RecordFailedAttempt(ctx, email, ip)
+			_ = limiter.RecordFailedAttempt(ctx, email, ip)
 		}
 
 		err := limiter.CheckRateLimit(ctx, email, ip)
@@ -41,16 +41,16 @@ func TestRateLimiter(t *testing.T) {
 		email := "windowexpiry@example.com"
 		ip := "192.168.1.2"
 
-		limiter.RecordFailedAttempt(ctx, email, ip)
-		limiter.RecordFailedAttempt(ctx, email, ip)
+		_ = limiter.RecordFailedAttempt(ctx, email, ip)
+		_ = limiter.RecordFailedAttempt(ctx, email, ip)
 
 		err := limiter.CheckRateLimit(ctx, email, ip)
 		assert.NoError(t, err, "Should be allowed, not enough attempts yet")
 
 		// Record more attempts to trigger lock
-		limiter.RecordFailedAttempt(ctx, email, ip)
-		limiter.RecordFailedAttempt(ctx, email, ip)
-		limiter.RecordFailedAttempt(ctx, email, ip)
+		_ = limiter.RecordFailedAttempt(ctx, email, ip)
+		_ = limiter.RecordFailedAttempt(ctx, email, ip)
+		_ = limiter.RecordFailedAttempt(ctx, email, ip)
 
 		err = limiter.CheckRateLimit(ctx, email, ip)
 		assert.Error(t, err)
@@ -68,7 +68,7 @@ func TestRateLimiter(t *testing.T) {
 		ip := "192.168.1.3"
 
 		for i := 0; i < 4; i++ {
-			limiter.RecordFailedAttempt(ctx, email, ip)
+			_ = limiter.RecordFailedAttempt(ctx, email, ip)
 		}
 
 		err := limiter.ResetAttempts(ctx, email, ip)
@@ -85,7 +85,7 @@ func TestRateLimiter(t *testing.T) {
 		ip := "192.168.1.4"
 
 		for i := 0; i < 5; i++ {
-			limiter.RecordFailedAttempt(ctx, email, ip)
+			_ = limiter.RecordFailedAttempt(ctx, email, ip)
 		}
 
 		err := limiter.CheckRateLimit(ctx, email, ip)
@@ -96,7 +96,7 @@ func TestRateLimiter(t *testing.T) {
 
 		time.Sleep(250 * time.Millisecond)
 
-		limiter.ResetAttempts(ctx, email, ip)
+		_ = limiter.ResetAttempts(ctx, email, ip)
 
 		err = limiter.CheckRateLimit(ctx, email, ip)
 		assert.NoError(t, err, "Should be allowed after reset")
@@ -113,7 +113,7 @@ func TestRateLimiter(t *testing.T) {
 			testEmail := fmt.Sprintf("user%d@example.com", i)
 			err := limiter.CheckRateLimit(ctx, testEmail, ip)
 			assert.NoError(t, err, "Request %d should be allowed", i+1)
-			limiter.RecordFailedAttempt(ctx, testEmail, ip)
+			_ = limiter.RecordFailedAttempt(ctx, testEmail, ip)
 		}
 
 		// 21st attempt should be blocked
@@ -130,7 +130,7 @@ func TestRateLimiter(t *testing.T) {
 		done := make(chan bool, 10)
 		for i := 0; i < 10; i++ {
 			go func() {
-				limiter.RecordFailedAttempt(ctx, email, ip)
+				_ = limiter.RecordFailedAttempt(ctx, email, ip)
 				done <- true
 			}()
 		}
@@ -148,7 +148,7 @@ func TestRateLimiter(t *testing.T) {
 		ctx := context.Background()
 
 		for i := 0; i < 5; i++ {
-			limiter.RecordFailedAttempt(ctx, "user1@example.com", "192.168.1.10")
+			_ = limiter.RecordFailedAttempt(ctx, "user1@example.com", "192.168.1.10")
 		}
 
 		err := limiter.CheckRateLimit(ctx, "user1@example.com", "192.168.1.10")

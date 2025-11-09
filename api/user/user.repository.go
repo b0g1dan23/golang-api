@@ -27,7 +27,7 @@ func (r *UserRepository) FindByID(id string) (*User, error) {
 	var user User
 	if err := r.DB.First(&user, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("User with that ID not found")
+			return nil, errors.New("user with that ID not found")
 		}
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func (r *UserRepository) FindByEmail(email string) (*User, error) {
 	var user User
 	if err := r.DB.First(&user, "email = ?", email).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("User with that email not found")
+			return nil, errors.New("user with that email not found")
 		}
 		return nil, err
 	}

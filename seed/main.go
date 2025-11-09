@@ -13,7 +13,9 @@ import (
 func main() {
 	database.ConnectDB()
 
-	database.DB.DB.AutoMigrate(&user.User{})
+	if err := database.DB.DB.AutoMigrate(&user.User{}); err != nil {
+		log.Fatalf("Failed to migrate database: %v", err)
+	}
 
 	db := database.DB
 
@@ -26,7 +28,10 @@ func main() {
 		log.Fatalf("Failed to query admin user: %v", err)
 	}
 
-	password, _ := bcrypt.GenerateFromPassword([]byte(os.Getenv("ADMIN_PASSWORD")), bcrypt.DefaultCost)
+	password, err := bcrypt.GenerateFromPassword([]byte(os.Getenv("ADMIN_PASSWORD")), bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatalf("Failed to hash admin password: %v", err)
+	}
 	admin = user.User{
 		FirstName: os.Getenv("ADMIN_USERNAME"),
 		LastName:  "Admin",

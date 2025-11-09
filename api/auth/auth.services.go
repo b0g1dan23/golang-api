@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -113,16 +114,27 @@ func (s *AuthService) Login(dto LoginDTO) (*LoginResponse, error) {
 
 	userData, err := s.UserService.GetUserByEmail(dto.Email)
 	if err != nil {
-		s.RateLimiter.RecordFailedAttempt(ctx, dto.Email, clientIP)
+		if recordErr := s.RateLimiter.RecordFailedAttempt(ctx, dto.Email, clientIP); recordErr != nil {
+			// Log the error but don't fail the request
+			// Consider adding proper logging here
+			log.Printf("%s: failed to record a failed attempt", recordErr)
+		}
 		return nil, ErrInvalidCredentials
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(userData.Password), []byte(dto.Password)); err != nil {
-		s.RateLimiter.RecordFailedAttempt(ctx, dto.Email, clientIP)
+		if recordErr := s.RateLimiter.RecordFailedAttempt(ctx, dto.Email, clientIP); recordErr != nil {
+			// Log the error but don't fail the request
+			log.Printf("%s: failed to record a failed attempt", recordErr)
+		}
 		return nil, ErrInvalidCredentials
 	}
 
-	s.RateLimiter.ResetAttempts(ctx, dto.Email, clientIP)
+	if err := s.RateLimiter.ResetAttempts(ctx, dto.Email, clientIP); err != nil {
+		// Log the error but don't fail the login
+		// The user successfully authenticated, so we proceed
+		log.Printf("%s: failed to reset rate limiter attempts", err)
+	}
 
 	authToken, err := createJWTToken(JWTData{
 		ID:    userData.ID,
@@ -222,19 +234,43 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 	subVal := claims["sub"]
 	emailVal := claims["email"]
 	roleVal := claims["role"]
-	subStr := ""
-	emailStr := ""
-	roleStr := ""
-	if sID, ok := subVal.(string); ok {
-		subStr = sID
-	} else if sID, ok := subVal.(float64); ok {
-		subStr = fmt.Sprintf("%.0f", sID)
+
+	var userID, email, role string
+	var userData *user.User
+
+	// Extract sub (user ID)
+	if subVal != nil {
+		switch v := subVal.(type) {
+		case string:
+			userID = v
+		case float64:
+			userID = fmt.Sprintf("%.0f", v)
+		}
 	}
-	if e, ok := emailVal.(string); ok {
-		emailStr = e
+
+	if emailVal != nil {
+		email, _ = emailVal.(string)
 	}
-	if r, ok := roleVal.(string); ok {
-		roleStr = r
+	if roleVal != nil {
+		role, _ = roleVal.(string)
+	}
+
+	// Fetch user from database if we have a userID
+	if userID != "" {
+		var err error
+		userData, err = s.UserService.GetUserByID(userID)
+		if err != nil {
+			return nil, ErrUserNotFound
+		}
+	} else {
+		// If no userID, create a minimal user object from token claims
+		userData = &user.User{}
+		if email != "" {
+			userData.Email = email
+		}
+		if role != "" {
+			userData.Role = role
+		}
 	}
 
 	expVal, ok := claims["exp"]
@@ -249,18 +285,20 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 			n, _ := v.Int64()
 			expUnix = n
 		default:
-			return nil, errors.New("invalid exp claim")
+			return nil, fmt.Errorf("%w: invalid exp claim", ErrInvalidToken)
 		}
 		ttl := time.Until(time.Unix(expUnix, 0))
 		if ttl > 0 {
-			_ = database.RDB.Client.Set(ctx, blacklistKey, "1", ttl).Err()
+			if err = database.RDB.Client.Set(ctx, blacklistKey, "1", ttl).Err(); err != nil {
+				return nil, fmt.Errorf("failed to blacklist refresh token: %w", err)
+			}
 		}
 	}
 
 	authToken, err := createJWTToken(JWTData{
-		ID:    subStr,
-		Email: emailStr,
-		Role:  roleStr,
+		ID:    userID,
+		Email: email,
+		Role:  role,
 	}, constants.MaxLoginTokenAge)
 	if err != nil {
 		return nil, err
@@ -268,9 +306,9 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 
 	newJTI := uuid.New().String()
 	newRefreshToken, err := createJWTToken(JWTData{
-		ID:    subStr,
-		Email: emailStr,
-		Role:  roleStr,
+		ID:    userID,
+		Email: email,
+		Role:  role,
 		JTI:   newJTI,
 	}, constants.MaxRefreshTokenAge)
 	if err != nil {
@@ -281,5 +319,6 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 		AuthToken:    authToken,
 		RefreshToken: newRefreshToken,
 		RefreshJTI:   newJTI,
+		User:         userData,
 	}, nil
 }

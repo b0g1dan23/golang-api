@@ -184,9 +184,7 @@ func ParseJWTClaimsAllowExpired(t *testing.T, tokenString string) (jwt.MapClaims
 }
 
 func SetupTestDB(t *testing.T) *gorm.DB {
-	if err := godotenv.Load("../../.env"); err != nil {
-		t.Fatal("Failed to load .env file\n", err.Error())
-	}
+	_ = godotenv.Load("../../.env")
 
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Europe/Belgrade",
 		os.Getenv("TEST_POSTGRES_HOST"),
@@ -280,12 +278,14 @@ func ClearRateLimitKeys(email string) {
 func CleanupTestDB(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
+	// Simple and safe approach - just truncate all tables
 	tables := []string{"users"}
 
 	for _, table := range tables {
-		result := db.Exec(fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY CASCADE", table))
-		if result.Error != nil {
-			t.Logf("Warning: Failed to truncate %s: %v", table, result.Error)
+		// Use TRUNCATE with CASCADE to reset sequences
+		query := fmt.Sprintf("TRUNCATE TABLE %s RESTART IDENTITY CASCADE", table)
+		if err := db.Exec(query).Error; err != nil {
+			t.Logf("Warning: Failed to truncate %s: %v", table, err)
 		}
 	}
 }

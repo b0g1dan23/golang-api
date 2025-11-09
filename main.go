@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 
 	"boge.dev/golang-api/api/auth"
@@ -15,7 +16,9 @@ func main() {
 	database.ConnectDB()
 	database.InitializeRedis()
 
-	database.DB.DB.AutoMigrate(&user.User{})
+	if err := database.DB.DB.AutoMigrate(&user.User{}); err != nil {
+		log.Fatalf("Failed to migrate database: %v", err)
+	}
 
 	app := fiber.New()
 
@@ -29,5 +32,13 @@ func main() {
 	user.RegisterRoutes(app)
 	auth.RegisterAuthRoutes(app)
 
-	app.Listen(":" + os.Getenv("APP_PORT"))
+	port := os.Getenv("APP_PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Starting server on port %s", port)
+	if err := app.Listen(":" + port); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }

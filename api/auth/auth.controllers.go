@@ -59,10 +59,15 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 		Value: loginRes.RefreshToken,
 	})
 
-	database.RDB.Client.Set(ctx.Context(),
+	err = database.RDB.Client.Set(ctx.Context(),
 		fmt.Sprintf("refresh_token:%s:%s", loginRes.User.ID, loginRes.RefreshJTI),
 		loginRes.RefreshToken,
-		constants.MaxRefreshTokenAge)
+		constants.MaxRefreshTokenAge).Err()
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to store refresh token",
+		})
+	}
 
 	return ctx.Status(http.StatusOK).JSON(fiber.Map{
 		"user": loginRes.User,
@@ -107,10 +112,15 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 		})
 	}
 
-	database.RDB.Client.Set(ctx.Context(),
+	err = database.RDB.Client.Set(ctx.Context(),
 		fmt.Sprintf("refresh_token:%s:%s", loginRes.User.ID, loginRes.RefreshJTI),
 		loginRes.RefreshToken,
-		constants.MaxRefreshTokenAge)
+		constants.MaxRefreshTokenAge).Err()
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to store refresh token",
+		})
+	}
 
 	setCookie(ctx, CookieData{
 		Name:  "__Host-refresh_token",
