@@ -1,10 +1,11 @@
-version: '3.8'
 services:
   postgres:
     image: postgres:17-alpine
     container_name: postgres_db
-    env_file:
-      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
@@ -15,5 +16,73 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  postgres-test:
+    image: postgres:17-alpine
+    container_name: postgres_test_db
+    environment:
+      POSTGRES_USER: ${TEST_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${TEST_POSTGRES_DB}
+    ports:
+      - "${TEST_POSTGRES_PORT}:5432"
+    restart: always
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${TEST_POSTGRES_USER} -d ${TEST_POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8.2.2-alpine
+    container_name: redis_cache
+    ports:
+      - "${REDIS_PORT}:6379"
+    restart: always
+    volumes:
+      - redis_data:/data
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: golang_api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT}:8080"
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_PORT=5432
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+    
+  seed:
+    build: .
+    command: ['./seed']
+    container_name: seed
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_PORT=5432
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+
 volumes:
   pg_data:
+  redis_data:

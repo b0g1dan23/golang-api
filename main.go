@@ -1,6 +1,10 @@
 package main
 
 import (
+	"log"
+	"os"
+
+	"boge.dev/golang-api/api/auth"
 	"boge.dev/golang-api/api/user"
 	database "boge.dev/golang-api/db"
 	"github.com/gofiber/fiber/v2"
@@ -10,8 +14,11 @@ import (
 
 func main() {
 	database.ConnectDB()
+	database.InitializeRedis()
 
-	database.DB.DB.AutoMigrate(&user.User{})
+	if err := database.DB.DB.AutoMigrate(&user.User{}); err != nil {
+		log.Fatalf("Failed to migrate database: %v", err)
+	}
 
 	app := fiber.New()
 
@@ -23,6 +30,15 @@ func main() {
 	app.Use(cors.New())
 
 	user.RegisterRoutes(app)
+	auth.RegisterAuthRoutes(app)
 
-	app.Listen(":8080")
+	port := os.Getenv("APP_PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Starting server on port %s", port)
+	if err := app.Listen(":" + port); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }
