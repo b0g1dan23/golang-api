@@ -3,7 +3,6 @@ package auth
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"boge.dev/golang-api/constants"
@@ -24,8 +23,8 @@ func setCookie(ctx *fiber.Ctx, data CookieData) {
 	cookie.Name = data.Name
 	cookie.Value = data.Value
 	cookie.HTTPOnly = true
-	cookie.Secure = os.Getenv("GO_ENV") == "production"
-	cookie.SameSite = "Strict"
+	cookie.Secure = true
+	cookie.SameSite = "Lax"
 	cookie.Path = "/"
 	cookie.MaxAge = int(constants.MaxLoginTokenAge / time.Second)
 
