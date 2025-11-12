@@ -372,7 +372,11 @@ func (s *AuthService) ExchangeCodeAndGetUser(code string, oauthConfig *oauth2.Co
 		log.Println("Failed to get user info:", err)
 		return nil, fmt.Errorf("failed to get user info: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Failed to close response body: %v", closeErr)
+		}
+	}()
 
 	var userInfo map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
