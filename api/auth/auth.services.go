@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"boge.dev/golang-api/api/user"
-	"boge.dev/golang-api/base"
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
 	"github.com/golang-jwt/jwt/v5"
@@ -390,12 +389,7 @@ func MapGoogleUserToUser(userInfo map[string]interface{}) (*user.User, error) {
 		LastName:  strings.TrimSpace(familyName),
 		Email:     strings.TrimSpace(email),
 		Role:      "user",
-		Password:  "",
-		BaseModel: base.BaseModel{
-			ID:        "",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		},
+		Password:  "", // OAuth users have empty passwords and can only authenticate via OAuth
 	}, nil
 }
 
