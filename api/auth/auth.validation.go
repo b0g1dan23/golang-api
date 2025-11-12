@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"errors"
 	"regexp"
+	"strings"
 	"unicode"
 )
 
@@ -57,5 +59,26 @@ func ValidateLoginDTO(dto LoginDTO) error {
 	if err := ValidatePassword(dto.Password); err != nil {
 		return err
 	}
+	return nil
+}
+
+func ValidateOAuthLoginDTO(dto OAuthLoginDTO) error {
+	if dto.Email == "" {
+		return errors.New("email is required")
+	}
+
+	if dto.FirstName == "" {
+		return errors.New("first name is required")
+	}
+
+	if dto.LastName == "" {
+		return errors.New("last name is required")
+	}
+
+	// Basic email validation
+	if !strings.Contains(dto.Email, "@") {
+		return errors.New("invalid email format")
+	}
+
 	return nil
 }

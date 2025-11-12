@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1140,5 +1141,284 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 		assert.Greater(t, ttl, 25*time.Minute)
 		assert.LessOrEqual(t, ttl, 30*time.Minute)
+	})
+}
+
+func TestMapGoogleUserToUser(t *testing.T) {
+	t.Run("Success with complete user info", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "John",
+			"family_name": "Doe",
+			"email":       "john.doe@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "John", result.FirstName)
+		assert.Equal(t, "Doe", result.LastName)
+		assert.Equal(t, "john.doe@example.com", result.Email)
+		assert.Equal(t, "user", result.Role)
+		assert.Empty(t, result.Password)
+		assert.Empty(t, result.ID)
+	})
+
+	t.Run("Success with missing family name", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name": "John",
+			"email":      "john@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "John", result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Equal(t, "john@example.com", result.Email)
+	})
+
+	t.Run("Success with missing given name", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"family_name": "Doe",
+			"email":       "doe@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Equal(t, "Doe", result.LastName)
+		assert.Equal(t, "doe@example.com", result.Email)
+	})
+
+	t.Run("Success with only email", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"email": "minimal@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Equal(t, "minimal@example.com", result.Email)
+		assert.Equal(t, "user", result.Role)
+	})
+
+	t.Run("Empty user info", func(t *testing.T) {
+		userInfo := map[string]interface{}{}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Empty(t, result.Email)
+		assert.Equal(t, "user", result.Role)
+	})
+
+	t.Run("User info with extra fields", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "Jane",
+			"family_name": "Smith",
+			"email":       "jane.smith@example.com",
+			"picture":     "https://example.com/photo.jpg",
+			"locale":      "en",
+			"verified":    true,
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "Jane", result.FirstName)
+		assert.Equal(t, "Smith", result.LastName)
+		assert.Equal(t, "jane.smith@example.com", result.Email)
+	})
+
+	t.Run("User info with numeric values", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "Test",
+			"family_name": "User",
+			"email":       "test@example.com",
+			"age":         25,
+			"verified":    1,
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "Test", result.FirstName)
+		assert.Equal(t, "User", result.LastName)
+		assert.Equal(t, "test@example.com", result.Email)
+	})
+
+	t.Run("User info with special characters in names", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "François",
+			"family_name": "O'Brien-Smith",
+			"email":       "francois@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "François", result.FirstName)
+		assert.Equal(t, "O'Brien-Smith", result.LastName)
+		assert.Equal(t, "francois@example.com", result.Email)
+	})
+
+	t.Run("User info with whitespace in fields", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "John",
+			"family_name": "Doe",
+			"email":       "john@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "John", result.FirstName)
+		assert.Equal(t, "Doe", result.LastName)
+		assert.Equal(t, "john@example.com", result.Email)
+	})
+
+	t.Run("User info with long names", func(t *testing.T) {
+		longFirstName := strings.Repeat("A", 200)
+
+		userInfo := map[string]interface{}{
+			"given_name":  longFirstName,
+			"family_name": "Doe",
+			"email":       "long@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, longFirstName, result.FirstName)
+		assert.Equal(t, 200, len(result.FirstName))
+	})
+
+	t.Run("Nil user info", func(t *testing.T) {
+		var userInfo map[string]interface{}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Empty(t, result.Email)
+	})
+
+	t.Run("CreatedAt and UpdatedAt are not manually set", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "John",
+			"family_name": "Doe",
+			"email":       "john@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		// CreatedAt and UpdatedAt should be zero values - GORM will set them on insert
+		assert.True(t, result.CreatedAt.IsZero())
+		assert.True(t, result.UpdatedAt.IsZero())
+	})
+}
+
+func TestAuthService_LoginOAuthUser(t *testing.T) {
+	testutils.SetupTestConfig(t)
+	testDB := testutils.SetupTestDB(t)
+	database.DB.DB = testDB
+	mr := testutils.SetupTestRedis(t)
+	defer mr.Close()
+
+	service := NewAuthService()
+
+	t.Run("Creates new user and returns tokens", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "newuser@example.com",
+			FirstName: "New",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotEmpty(t, result.AuthToken)
+		assert.NotEmpty(t, result.RefreshToken)
+		assert.NotEmpty(t, result.RefreshJTI)
+		assert.Equal(t, dto.Email, result.User.Email)
+		assert.Equal(t, dto.FirstName, result.User.FirstName)
+		assert.Equal(t, dto.LastName, result.User.LastName)
+		assert.Equal(t, "user", result.User.Role)
+	})
+
+	t.Run("Returns existing user and generates tokens", func(t *testing.T) {
+		// Create user first
+		testutils.CreateTestUser(t, testDB, "existing@example.com", "")
+
+		dto := OAuthLoginDTO{
+			Email:     "existing@example.com",
+			FirstName: "Existing",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotEmpty(t, result.AuthToken)
+		assert.NotEmpty(t, result.RefreshToken)
+		assert.Equal(t, dto.Email, result.User.Email)
+	})
+
+	t.Run("Returns error on empty email", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "",
+			FirstName: "Test",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "email is required")
+	})
+
+	t.Run("Returns error on invalid email format", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "invalid-email",
+			FirstName: "Test",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "invalid email format")
+	})
+
+	t.Run("Handles missing first name", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "noname@example.com",
+			FirstName: "",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("Handles missing last name", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "nolast@example.com",
+			FirstName: "First",
+			LastName:  "",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.Error(t, err)
+		assert.Nil(t, result)
 	})
 }

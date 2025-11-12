@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"boge.dev/golang-api/api/user"
@@ -15,6 +17,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )
 
@@ -144,6 +147,58 @@ func (s *AuthService) Login(dto LoginDTO) (*LoginResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+	refreshTokenJTI := uuid.New().String()
+	refreshToken, err := createJWTToken(JWTData{
+		ID:    userData.ID,
+		Email: userData.Email,
+		Role:  userData.Role,
+		JTI:   refreshTokenJTI,
+	}, constants.MaxRefreshTokenAge)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LoginResponse{
+		AuthToken:    authToken,
+		RefreshToken: refreshToken,
+		RefreshJTI:   refreshTokenJTI,
+		User:         userData,
+	}, nil
+}
+
+func (s *AuthService) LoginOAuthUser(dto OAuthLoginDTO) (*LoginResponse, error) {
+	if err := ValidateOAuthLoginDTO(dto); err != nil {
+		return nil, err
+	}
+
+	// Get or create user
+	userData, err := s.UserService.GetUserByEmail(dto.Email)
+	if err != nil {
+		// User doesn't exist, create new user from OAuth data
+		newUser := &user.User{
+			FirstName: dto.FirstName,
+			LastName:  dto.LastName,
+			Email:     dto.Email,
+			Role:      "user",
+			Password:  "", // No password for OAuth users
+		}
+
+		userData, err = s.UserService.CreateUser(newUser)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create OAuth user: %w", err)
+		}
+	}
+
+	// Generate JWT tokens
+	authToken, err := createJWTToken(JWTData{
+		ID:    userData.ID,
+		Email: userData.Email,
+		Role:  userData.Role,
+	}, constants.MaxLoginTokenAge)
+	if err != nil {
+		return nil, err
+	}
+
 	refreshTokenJTI := uuid.New().String()
 	refreshToken, err := createJWTToken(JWTData{
 		ID:    userData.ID,
@@ -322,4 +377,64 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 		RefreshJTI:   newJTI,
 		User:         userData,
 	}, nil
+}
+
+func MapGoogleUserToUser(userInfo map[string]interface{}) (*user.User, error) {
+	givenName, _ := userInfo["given_name"].(string)
+	familyName, _ := userInfo["family_name"].(string)
+	email, _ := userInfo["email"].(string)
+
+	return &user.User{
+		FirstName: strings.TrimSpace(givenName),
+		LastName:  strings.TrimSpace(familyName),
+		Email:     strings.TrimSpace(email),
+		Role:      "user",
+		Password:  "", // OAuth users have empty passwords and can only authenticate via OAuth
+	}, nil
+}
+
+func (s *AuthService) ExchangeCodeAndGetUser(code string, oauthConfig *oauth2.Config) (*user.User, error) {
+	token, err := oauthConfig.Exchange(context.Background(), code)
+	if err != nil {
+		log.Println("Code exchange failed:", err)
+		return nil, fmt.Errorf("failed to exchange token: %w", err)
+	}
+
+	client := oauthConfig.Client(context.Background(), token)
+	resp, err := client.Get("https://www.googleapis.com/oauth2/v3/userinfo")
+	if err != nil {
+		log.Println("Failed to get user info:", err)
+		return nil, fmt.Errorf("failed to get user info: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Failed to close response body: %v", closeErr)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get user info: unexpected status %d", resp.StatusCode)
+	}
+
+	var userInfo map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+		log.Println("Failed to parse user info:", err)
+		return nil, fmt.Errorf("failed to parse user info: %w", err)
+	}
+
+	user, err := MapGoogleUserToUser(userInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.Email == "" {
+		return nil, fmt.Errorf("email is required from Google OAuth")
+	}
+
+	exists, err := s.UserService.GetUserByEmail(user.Email)
+	if err == nil && exists != nil {
+		return exists, nil
+	}
+
+	return s.UserService.CreateUser(user)
 }

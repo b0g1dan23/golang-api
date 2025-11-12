@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -9,6 +11,8 @@ import (
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
 	"github.com/gofiber/fiber/v2"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 type AuthController struct {
@@ -17,6 +21,27 @@ type AuthController struct {
 
 func NewAuthController() *AuthController {
 	return &AuthController{AuthService: NewAuthService()}
+}
+
+func GetGoogleOAuthConfig() *oauth2.Config {
+	return &oauth2.Config{
+		RedirectURL:  os.Getenv("APP_URL") + "/api/auth/google/callback",
+		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		Scopes: []string{
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		},
+		Endpoint: google.Endpoint,
+	}
+}
+
+func generateOAuthState() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(b), nil
 }
 
 func setCookie(ctx *fiber.Ctx, data CookieData) {
@@ -122,6 +147,99 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 		})
 	}
 
+	setCookie(ctx, CookieData{
+		Name:  "__Host-refresh_token",
+		Value: loginRes.RefreshToken,
+	})
+	setCookie(ctx, CookieData{
+		Name:  "__Secure-auth_token",
+		Value: loginRes.AuthToken,
+	})
+
+	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
+		"user": loginRes.User,
+	})
+}
+
+func (c *AuthController) GoogleLogin(ctx *fiber.Ctx) error {
+	state, err := generateOAuthState()
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to generate OAuth state",
+		})
+	}
+
+	err = database.RDB.Client.Set(ctx.Context(),
+		fmt.Sprintf("oauth_state:%s", state),
+		"1",
+		10*time.Minute).Err()
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to store OAuth state",
+		})
+	}
+
+	googleOAuthConfig := GetGoogleOAuthConfig()
+	url := googleOAuthConfig.AuthCodeURL(state)
+	return ctx.Redirect(url)
+}
+
+func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
+	state := ctx.Query("state")
+	if state == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Missing OAuth state parameter",
+		})
+	}
+
+	exists, err := database.RDB.Client.Exists(ctx.Context(),
+		fmt.Sprintf("oauth_state:%s", state)).Result()
+	if err != nil || exists == 0 {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Invalid or expired OAuth state",
+		})
+	}
+
+	database.RDB.Client.Del(ctx.Context(), fmt.Sprintf("oauth_state:%s", state))
+
+	googleOAuthConfig := GetGoogleOAuthConfig()
+
+	code := ctx.Query("code")
+	if code == "" {
+		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Missing authorization code",
+		})
+	}
+
+	user, err := c.AuthService.ExchangeCodeAndGetUser(code, googleOAuthConfig)
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	loginRes, err := c.AuthService.Login(LoginDTO{
+		Email:    user.Email,
+		ClientIP: ctx.IP(),
+	})
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to generate tokens",
+		})
+	}
+
+	// Store the refresh token in Redis
+	err = database.RDB.Client.Set(ctx.Context(),
+		fmt.Sprintf("refresh_token:%s:%s", loginRes.User.ID, loginRes.RefreshJTI),
+		loginRes.RefreshToken,
+		constants.MaxRefreshTokenAge).Err()
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to store refresh token",
+		})
+	}
+
+	// Set secure cookies
 	setCookie(ctx, CookieData{
 		Name:  "__Host-refresh_token",
 		Value: loginRes.RefreshToken,
