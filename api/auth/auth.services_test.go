@@ -1309,9 +1309,7 @@ func TestMapGoogleUserToUser(t *testing.T) {
 		assert.Empty(t, result.Email)
 	})
 
-	t.Run("CreatedAt and UpdatedAt are set", func(t *testing.T) {
-		before := time.Now()
-
+	t.Run("CreatedAt and UpdatedAt are not manually set", func(t *testing.T) {
 		userInfo := map[string]interface{}{
 			"given_name":  "John",
 			"family_name": "Doe",
@@ -1319,14 +1317,12 @@ func TestMapGoogleUserToUser(t *testing.T) {
 		}
 
 		result, err := MapGoogleUserToUser(userInfo)
-		after := time.Now()
 
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
-		assert.True(t, result.CreatedAt.After(before) || result.CreatedAt.Equal(before))
-		assert.True(t, result.CreatedAt.Before(after) || result.CreatedAt.Equal(after))
-		assert.True(t, result.UpdatedAt.After(before) || result.UpdatedAt.Equal(before))
-		assert.True(t, result.UpdatedAt.Before(after) || result.UpdatedAt.Equal(after))
+		// CreatedAt and UpdatedAt should be zero values - GORM will set them on insert
+		assert.True(t, result.CreatedAt.IsZero())
+		assert.True(t, result.UpdatedAt.IsZero())
 	})
 }
 
