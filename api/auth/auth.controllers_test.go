@@ -225,6 +225,9 @@ func TestAuthController_RefreshToken(t *testing.T) {
 		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(body))
 		loginReq.Header.Set("Content-Type", "application/json")
 		loginResp, err := app.Test(loginReq)
+		if err != nil {
+			t.Fatal("Failed to perform login request\n", err.Error())
+		}
 
 		// Extract refresh token
 		var refreshToken string
