@@ -24,7 +24,7 @@ func setCookie(ctx *fiber.Ctx, data CookieData) {
 	cookie.Name = data.Name
 	cookie.Value = data.Value
 	cookie.HTTPOnly = true
-	cookie.Secure = os.Getenv("GO_ENV") == "production"
+	cookie.Secure = os.Getenv("GO_ENV") != "development"
 	cookie.SameSite = "Strict"
 	cookie.Path = "/"
 	cookie.MaxAge = int(constants.MaxLoginTokenAge / time.Second)
