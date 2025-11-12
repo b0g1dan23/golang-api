@@ -42,8 +42,14 @@ func setupTestApp(t *testing.T) (*fiber.App, *user.User) {
 	// Cleanup
 	t.Cleanup(func() {
 		testutils.CleanupTestDB(t, testDB)
-		sqlDB, _ := testDB.DB()
-		sqlDB.Close()
+		sqlDB, err := testDB.DB()
+		if err != nil {
+			t.Fatalf("Warning: Failed to get DB: %v", err)
+		}
+		err = sqlDB.Close()
+		if err != nil {
+			t.Logf("Warning: Failed to close test database: %v", err)
+		}
 		mr.Close()
 	})
 
@@ -58,7 +64,10 @@ func TestAuthController_Login(t *testing.T) {
 			Email:    validTestUserEmail,
 			Password: validTestUserPassword,
 		}
-		body, _ := json.Marshal(loginData)
+		body, err := json.Marshal(loginData)
+		if err != nil {
+			t.Fatal("Failed to marshal login data\n", err.Error())
+		}
 
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -92,7 +101,10 @@ func TestAuthController_Login(t *testing.T) {
 			Email:    validTestUserEmail,
 			Password: "Password321*",
 		}
-		body, _ := json.Marshal(loginData)
+		body, err := json.Marshal(loginData)
+		if err != nil {
+			t.Fatal("Failed to marshal login data\n", err.Error())
+		}
 
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -107,7 +119,10 @@ func TestAuthController_Login(t *testing.T) {
 			Email:    "nonexistent@example.com",
 			Password: "Password123*",
 		}
-		body, _ := json.Marshal(loginData)
+		body, err := json.Marshal(loginData)
+		if err != nil {
+			t.Fatal("Failed to marshal login data\n", err.Error())
+		}
 
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -130,7 +145,10 @@ func TestAuthController_Login(t *testing.T) {
 		loginData := LoginDTO{
 			Password: "Password1234/",
 		}
-		body, _ := json.Marshal(loginData)
+		body, err := json.Marshal(loginData)
+		if err != nil {
+			t.Fatal("Failed to marshal login data\n", err.Error())
+		}
 
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -149,11 +167,17 @@ func TestAuthController_Logout(t *testing.T) {
 			Email:    validTestUserEmail,
 			Password: validTestUserPassword,
 		}
-		body, _ := json.Marshal(loginData)
+		body, err := json.Marshal(loginData)
+		if err != nil {
+			t.Fatal("Failed to marshal login data\n", err.Error())
+		}
 
 		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(body))
 		loginReq.Header.Set("Content-Type", "application/json")
-		loginResp, _ := app.Test(loginReq)
+		loginResp, err := app.Test(loginReq)
+		if err != nil {
+			t.Fatal("Failed to perform login request\n", err.Error())
+		}
 
 		// Extract refresh token from login response
 		var refreshToken string
@@ -193,11 +217,14 @@ func TestAuthController_RefreshToken(t *testing.T) {
 			Email:    validTestUserEmail,
 			Password: validTestUserPassword,
 		}
-		body, _ := json.Marshal(loginData)
+		body, err := json.Marshal(loginData)
+		if err != nil {
+			t.Fatal("Failed to marshal login data\n", err.Error())
+		}
 
 		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(body))
 		loginReq.Header.Set("Content-Type", "application/json")
-		loginResp, _ := app.Test(loginReq)
+		loginResp, err := app.Test(loginReq)
 
 		// Extract refresh token
 		var refreshToken string
