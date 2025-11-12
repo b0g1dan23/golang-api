@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"boge.dev/golang-api/api/user"
+	"boge.dev/golang-api/base"
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )
 
@@ -322,4 +324,71 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 		RefreshJTI:   newJTI,
 		User:         userData,
 	}, nil
+}
+
+func MapGoogleUserToUser(userInfo map[string]interface{}) (*user.User, error) {
+	type googleUser struct {
+		GivenName  string `json:"given_name"`
+		FamilyName string `json:"family_name"`
+		Email      string `json:"email"`
+	}
+
+	data, err := json.Marshal(userInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	var gu googleUser
+	if err := json.Unmarshal(data, &gu); err != nil {
+		return nil, err
+	}
+
+	user := &user.User{
+		FirstName: gu.GivenName,
+		LastName:  gu.FamilyName,
+		Email:     gu.Email,
+		Role:      "user",
+		Password:  "",
+		BaseModel: base.BaseModel{
+			ID:        "",
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	return user, nil
+}
+
+func (s *AuthService) ExchangeCodeAndGetUser(code string, oauthConfig *oauth2.Config) (*user.User, error) {
+	token, err := oauthConfig.Exchange(context.Background(), code)
+	if err != nil {
+		log.Println("Code exchange failed:", err)
+		return nil, fmt.Errorf("failed to exchange token: %w", err)
+	}
+
+	client := oauthConfig.Client(context.Background(), token)
+	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	if err != nil {
+		log.Println("Failed to get user info:", err)
+		return nil, fmt.Errorf("failed to get user info: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var userInfo map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+		log.Println("Failed to parse user info:", err)
+		return nil, fmt.Errorf("failed to parse user info: %w", err)
+	}
+
+	user, err := MapGoogleUserToUser(userInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	exists, err := s.UserService.GetUserByEmail(user.Email)
+	if err == nil && exists != nil {
+		return exists, nil
+	}
+
+	return s.UserService.CreateUser(user)
 }

@@ -9,6 +9,8 @@ import (
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
 	"github.com/gofiber/fiber/v2"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 type AuthController struct {
@@ -17,6 +19,19 @@ type AuthController struct {
 
 func NewAuthController() *AuthController {
 	return &AuthController{AuthService: NewAuthService()}
+}
+
+func GetGoogleOAuthConfig() *oauth2.Config {
+	return &oauth2.Config{
+		RedirectURL:  "http://localhost:8080/api/auth/google/callback",
+		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		Scopes: []string{
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		},
+		Endpoint: google.Endpoint,
+	}
 }
 
 func setCookie(ctx *fiber.Ctx, data CookieData) {
@@ -134,4 +149,32 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"user": loginRes.User,
 	})
+}
+
+func (c *AuthController) GoogleLogin(ctx *fiber.Ctx) error {
+	googleOAuthConfig := GetGoogleOAuthConfig()
+	oauthStateString := os.Getenv("GOOGLE_STATE")
+	url := googleOAuthConfig.AuthCodeURL(oauthStateString)
+	fmt.Println(os.Getenv("GOOGLE_CLIENT_ID"))
+	return ctx.Redirect(url)
+}
+
+func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
+	oauthStateString := os.Getenv("GOOGLE_STATE")
+	state := ctx.Query("state")
+	if state != oauthStateString {
+		return ctx.Status(fiber.StatusUnauthorized).SendString("Invalid OAuth state")
+	}
+
+	googleOAuthConfig := GetGoogleOAuthConfig()
+
+	code := ctx.Query("code")
+	user, err := c.AuthService.ExchangeCodeAndGetUser(code, googleOAuthConfig)
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return ctx.JSON(user)
 }

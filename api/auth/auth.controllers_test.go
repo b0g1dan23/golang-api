@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"testing"
 
 	"boge.dev/golang-api/api/user"
@@ -272,5 +274,221 @@ func TestAuthController_RefreshToken(t *testing.T) {
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+}
+
+func TestAuthController_GoogleLogin(t *testing.T) {
+	app, _ := setupTestApp(t)
+
+	t.Run("Redirects to Google OAuth URL", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusFound, resp.StatusCode)
+
+		// Check redirect location
+		location := resp.Header.Get("Location")
+		assert.NotEmpty(t, location)
+		assert.Contains(t, location, "accounts.google.com/o/oauth2")
+		assert.Contains(t, location, "client_id=")
+		assert.Contains(t, location, "redirect_uri=")
+		assert.Contains(t, location, "scope=")
+		assert.Contains(t, location, "state=")
+	})
+
+	t.Run("Contains correct OAuth scopes", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+
+		location := resp.Header.Get("Location")
+		assert.Contains(t, location, "userinfo.email")
+		assert.Contains(t, location, "userinfo.profile")
+	})
+
+	t.Run("Uses correct client ID from env", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+
+		location := resp.Header.Get("Location")
+		clientID := os.Getenv("GOOGLE_CLIENT_ID")
+		if clientID != "" {
+			assert.Contains(t, location, "client_id="+clientID)
+		}
+	})
+
+	t.Run("Includes state parameter", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+
+		location := resp.Header.Get("Location")
+		state := os.Getenv("GOOGLE_STATE")
+		if state != "" {
+			assert.Contains(t, location, "state="+state)
+		}
+	})
+
+	t.Run("Uses correct redirect URI", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+
+		location := resp.Header.Get("Location")
+		parsed, err := url.Parse(location)
+		if err != nil {
+			panic(err)
+		}
+		redirect := parsed.Query().Get("redirect_uri")
+
+		assert.Contains(t, redirect, "http")
+		assert.Contains(t, redirect, "/api/auth/google/callback")
+	})
+}
+
+func TestAuthController_GoogleCallback(t *testing.T) {
+	app, _ := setupTestApp(t)
+
+	t.Run("Returns error on invalid state", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state=invalid_state&code=test_code", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+		body := make([]byte, resp.ContentLength)
+		_, err = resp.Body.Read(body)
+		if err != nil && err.Error() != "EOF" {
+			t.Logf("Warning: Failed to read response body: %v", err)
+		}
+		assert.Contains(t, string(body), "Invalid OAuth state")
+	})
+
+	t.Run("Returns error on missing state", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=test_code", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("Returns error on missing code", func(t *testing.T) {
+		state := os.Getenv("GOOGLE_STATE")
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state="+state, nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response, "error")
+	})
+
+	t.Run("Returns error on invalid code", func(t *testing.T) {
+		state := os.Getenv("GOOGLE_STATE")
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state="+state+"&code=invalid_code_12345", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response, "error")
+		assert.Contains(t, response["error"], "failed to exchange token")
+	})
+
+	t.Run("Returns error with empty state and code", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("Handles state with special characters", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state=abc%20123&code=test", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("Handles code with special characters", func(t *testing.T) {
+		state := os.Getenv("GOOGLE_STATE")
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state="+state+"&code=test%2Bcode%3D123", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	})
+
+	// Note: Testing successful OAuth flow requires mocking Google's OAuth endpoints
+	// These tests would need HTTP client mocking
+	t.Run("Successfully exchanges code for user - requires mocking", func(t *testing.T) {
+		t.Skip("Requires mocking Google OAuth endpoints")
+	})
+
+	t.Run("Creates new user on first Google login - requires mocking", func(t *testing.T) {
+		t.Skip("Requires mocking Google OAuth endpoints")
+	})
+
+	t.Run("Returns existing user on subsequent login - requires mocking", func(t *testing.T) {
+		t.Skip("Requires mocking Google OAuth endpoints")
+	})
+
+	t.Run("Handles Google API errors - requires mocking", func(t *testing.T) {
+		t.Skip("Requires mocking Google OAuth endpoints")
+	})
+
+	t.Run("Handles malformed Google user info - requires mocking", func(t *testing.T) {
+		t.Skip("Requires mocking Google OAuth endpoints")
+	})
+}
+
+func TestGetGoogleOAuthConfig(t *testing.T) {
+	t.Run("Returns valid OAuth config", func(t *testing.T) {
+		config := GetGoogleOAuthConfig()
+
+		assert.NotNil(t, config)
+		assert.NotEmpty(t, config.RedirectURL)
+		assert.Contains(t, config.RedirectURL, "/api/auth/google/callback")
+		assert.NotEmpty(t, config.Scopes)
+		assert.Contains(t, config.Scopes, "https://www.googleapis.com/auth/userinfo.email")
+		assert.Contains(t, config.Scopes, "https://www.googleapis.com/auth/userinfo.profile")
+		assert.NotNil(t, config.Endpoint)
+	})
+
+	t.Run("Uses environment variables", func(t *testing.T) {
+		config := GetGoogleOAuthConfig()
+
+		clientID := os.Getenv("GOOGLE_CLIENT_ID")
+		clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+
+		assert.Equal(t, clientID, config.ClientID)
+		assert.Equal(t, clientSecret, config.ClientSecret)
+	})
+
+	t.Run("Has correct redirect URL format", func(t *testing.T) {
+		config := GetGoogleOAuthConfig()
+
+		assert.Regexp(t, `^https?://.*`, config.RedirectURL)
+		assert.Contains(t, config.RedirectURL, "localhost:8080")
+	})
+
+	t.Run("Uses Google OAuth endpoint", func(t *testing.T) {
+		config := GetGoogleOAuthConfig()
+
+		assert.Equal(t, "https://oauth2.googleapis.com/token", config.Endpoint.TokenURL)
+		assert.Equal(t, "https://accounts.google.com/o/oauth2/auth", config.Endpoint.AuthURL)
 	})
 }

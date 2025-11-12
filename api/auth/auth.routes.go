@@ -8,4 +8,7 @@ func RegisterAuthRoutes(app *fiber.App) {
 	auth.Post("/login", controller.Login)
 	auth.Post("/logout", controller.Logout)
 	auth.Post("/refresh", controller.RefreshToken)
+
+	auth.Get("/google/login", controller.GoogleLogin)
+	auth.Get("/google/callback", controller.GoogleCallback)
 }

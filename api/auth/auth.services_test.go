@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1140,5 +1141,191 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 		assert.Greater(t, ttl, 25*time.Minute)
 		assert.LessOrEqual(t, ttl, 30*time.Minute)
+	})
+}
+
+func TestMapGoogleUserToUser(t *testing.T) {
+	t.Run("Success with complete user info", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "John",
+			"family_name": "Doe",
+			"email":       "john.doe@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "John", result.FirstName)
+		assert.Equal(t, "Doe", result.LastName)
+		assert.Equal(t, "john.doe@example.com", result.Email)
+		assert.Equal(t, "user", result.Role)
+		assert.Empty(t, result.Password)
+		assert.Empty(t, result.ID)
+	})
+
+	t.Run("Success with missing family name", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name": "John",
+			"email":      "john@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "John", result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Equal(t, "john@example.com", result.Email)
+	})
+
+	t.Run("Success with missing given name", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"family_name": "Doe",
+			"email":       "doe@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Equal(t, "Doe", result.LastName)
+		assert.Equal(t, "doe@example.com", result.Email)
+	})
+
+	t.Run("Success with only email", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"email": "minimal@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Equal(t, "minimal@example.com", result.Email)
+		assert.Equal(t, "user", result.Role)
+	})
+
+	t.Run("Empty user info", func(t *testing.T) {
+		userInfo := map[string]interface{}{}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Empty(t, result.Email)
+		assert.Equal(t, "user", result.Role)
+	})
+
+	t.Run("User info with extra fields", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "Jane",
+			"family_name": "Smith",
+			"email":       "jane.smith@example.com",
+			"picture":     "https://example.com/photo.jpg",
+			"locale":      "en",
+			"verified":    true,
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "Jane", result.FirstName)
+		assert.Equal(t, "Smith", result.LastName)
+		assert.Equal(t, "jane.smith@example.com", result.Email)
+	})
+
+	t.Run("User info with numeric values", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "Test",
+			"family_name": "User",
+			"email":       "test@example.com",
+			"age":         25,
+			"verified":    1,
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "Test", result.FirstName)
+		assert.Equal(t, "User", result.LastName)
+		assert.Equal(t, "test@example.com", result.Email)
+	})
+
+	t.Run("User info with special characters in names", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "François",
+			"family_name": "O'Brien-Smith",
+			"email":       "francois@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "François", result.FirstName)
+		assert.Equal(t, "O'Brien-Smith", result.LastName)
+		assert.Equal(t, "francois@example.com", result.Email)
+	})
+
+	t.Run("User info with whitespace in fields", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "  John  ",
+			"family_name": "  Doe  ",
+			"email":       "  john@example.com  ",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "  John  ", result.FirstName)
+		assert.Equal(t, "  Doe  ", result.LastName)
+		assert.Equal(t, "  john@example.com  ", result.Email)
+	})
+
+	t.Run("User info with long names", func(t *testing.T) {
+		longFirstName := strings.Repeat("A", 200)
+
+		userInfo := map[string]interface{}{
+			"given_name":  longFirstName,
+			"family_name": "Doe",
+			"email":       "long@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, longFirstName, result.FirstName)
+		assert.Equal(t, 200, len(result.FirstName))
+	})
+
+	t.Run("Nil user info", func(t *testing.T) {
+		var userInfo map[string]interface{}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Empty(t, result.Email)
+	})
+
+	t.Run("CreatedAt and UpdatedAt are set", func(t *testing.T) {
+		before := time.Now()
+
+		userInfo := map[string]interface{}{
+			"given_name":  "John",
+			"family_name": "Doe",
+			"email":       "john@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		after := time.Now()
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.True(t, result.CreatedAt.After(before) || result.CreatedAt.Equal(before))
+		assert.True(t, result.CreatedAt.Before(after) || result.CreatedAt.Equal(after))
+		assert.True(t, result.UpdatedAt.After(before) || result.UpdatedAt.Equal(before))
+		assert.True(t, result.UpdatedAt.Before(after) || result.UpdatedAt.Equal(after))
 	})
 }
