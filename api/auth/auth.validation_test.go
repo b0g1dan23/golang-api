@@ -78,3 +78,51 @@ func TestLoginValidation(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateOAuthLoginDTO(t *testing.T) {
+	t.Run("Valid DTO passes", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "test@example.com",
+			FirstName: "Test",
+			LastName:  "User",
+		}
+
+		err := ValidateOAuthLoginDTO(dto)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Empty email fails", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "",
+			FirstName: "Test",
+			LastName:  "User",
+		}
+
+		err := ValidateOAuthLoginDTO(dto)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "email is required")
+	})
+
+	t.Run("Invalid email format fails", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "not-an-email",
+			FirstName: "Test",
+			LastName:  "User",
+		}
+
+		err := ValidateOAuthLoginDTO(dto)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid email format")
+	})
+
+	t.Run("Missing names doesn't pass", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "test@example.com",
+			FirstName: "",
+			LastName:  "",
+		}
+
+		err := ValidateOAuthLoginDTO(dto)
+		assert.Error(t, err)
+	})
+}

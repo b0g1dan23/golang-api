@@ -8,6 +8,12 @@ type LoginDTO struct {
 	ClientIP string `json:"-"` // Not from request body, set by controller
 }
 
+type OAuthLoginDTO struct {
+	Email     string `json:"email"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+}
+
 type JWTData struct {
 	ID    string `json:"sub"`
 	Email string `json:"email"`

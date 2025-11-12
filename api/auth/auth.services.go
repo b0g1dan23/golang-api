@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"boge.dev/golang-api/api/user"
@@ -146,6 +148,58 @@ func (s *AuthService) Login(dto LoginDTO) (*LoginResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+	refreshTokenJTI := uuid.New().String()
+	refreshToken, err := createJWTToken(JWTData{
+		ID:    userData.ID,
+		Email: userData.Email,
+		Role:  userData.Role,
+		JTI:   refreshTokenJTI,
+	}, constants.MaxRefreshTokenAge)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LoginResponse{
+		AuthToken:    authToken,
+		RefreshToken: refreshToken,
+		RefreshJTI:   refreshTokenJTI,
+		User:         userData,
+	}, nil
+}
+
+func (s *AuthService) LoginOAuthUser(dto OAuthLoginDTO) (*LoginResponse, error) {
+	if err := ValidateOAuthLoginDTO(dto); err != nil {
+		return nil, err
+	}
+
+	// Get or create user
+	userData, err := s.UserService.GetUserByEmail(dto.Email)
+	if err != nil {
+		// User doesn't exist, create new user from OAuth data
+		newUser := &user.User{
+			FirstName: dto.FirstName,
+			LastName:  dto.LastName,
+			Email:     dto.Email,
+			Role:      "user",
+			Password:  "", // No password for OAuth users
+		}
+
+		userData, err = s.UserService.CreateUser(newUser)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create OAuth user: %w", err)
+		}
+	}
+
+	// Generate JWT tokens
+	authToken, err := createJWTToken(JWTData{
+		ID:    userData.ID,
+		Email: userData.Email,
+		Role:  userData.Role,
+	}, constants.MaxLoginTokenAge)
+	if err != nil {
+		return nil, err
+	}
+
 	refreshTokenJTI := uuid.New().String()
 	refreshToken, err := createJWTToken(JWTData{
 		ID:    userData.ID,
@@ -327,26 +381,14 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 }
 
 func MapGoogleUserToUser(userInfo map[string]interface{}) (*user.User, error) {
-	type googleUser struct {
-		GivenName  string `json:"given_name"`
-		FamilyName string `json:"family_name"`
-		Email      string `json:"email"`
-	}
+	givenName, _ := userInfo["given_name"].(string)
+	familyName, _ := userInfo["family_name"].(string)
+	email, _ := userInfo["email"].(string)
 
-	data, err := json.Marshal(userInfo)
-	if err != nil {
-		return nil, err
-	}
-
-	var gu googleUser
-	if err := json.Unmarshal(data, &gu); err != nil {
-		return nil, err
-	}
-
-	user := &user.User{
-		FirstName: gu.GivenName,
-		LastName:  gu.FamilyName,
-		Email:     gu.Email,
+	return &user.User{
+		FirstName: strings.TrimSpace(givenName),
+		LastName:  strings.TrimSpace(familyName),
+		Email:     strings.TrimSpace(email),
 		Role:      "user",
 		Password:  "",
 		BaseModel: base.BaseModel{
@@ -354,9 +396,7 @@ func MapGoogleUserToUser(userInfo map[string]interface{}) (*user.User, error) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		},
-	}
-
-	return user, nil
+	}, nil
 }
 
 func (s *AuthService) ExchangeCodeAndGetUser(code string, oauthConfig *oauth2.Config) (*user.User, error) {
@@ -367,7 +407,7 @@ func (s *AuthService) ExchangeCodeAndGetUser(code string, oauthConfig *oauth2.Co
 	}
 
 	client := oauthConfig.Client(context.Background(), token)
-	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	resp, err := client.Get("https://www.googleapis.com/oauth2/v3/userinfo")
 	if err != nil {
 		log.Println("Failed to get user info:", err)
 		return nil, fmt.Errorf("failed to get user info: %w", err)
@@ -378,6 +418,10 @@ func (s *AuthService) ExchangeCodeAndGetUser(code string, oauthConfig *oauth2.Co
 		}
 	}()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get user info: unexpected status %d", resp.StatusCode)
+	}
+
 	var userInfo map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
 		log.Println("Failed to parse user info:", err)
@@ -387,6 +431,10 @@ func (s *AuthService) ExchangeCodeAndGetUser(code string, oauthConfig *oauth2.Co
 	user, err := MapGoogleUserToUser(userInfo)
 	if err != nil {
 		return nil, err
+	}
+
+	if user.Email == "" {
+		return nil, fmt.Errorf("email is required from Google OAuth")
 	}
 
 	exists, err := s.UserService.GetUserByEmail(user.Email)

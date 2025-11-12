@@ -3,13 +3,13 @@ package auth
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"testing"
 
-	"boge.dev/golang-api/api/user"
 	database "boge.dev/golang-api/db"
 	"boge.dev/golang-api/utils/testutils"
 	"github.com/gofiber/fiber/v2"
@@ -21,7 +21,7 @@ const (
 	validTestUserPassword = "Password123*"
 )
 
-func setupTestApp(t *testing.T) (*fiber.App, *user.User) {
+func setupTestApp(t *testing.T) *fiber.App {
 	t.Helper()
 
 	// Setup test configuration
@@ -31,15 +31,14 @@ func setupTestApp(t *testing.T) (*fiber.App, *user.User) {
 	testDB := testutils.SetupTestDB(t)
 	database.DB.DB = testDB
 
-	// Setup miniRedis
-	mr := testutils.SetupTestRedis(t)
-
 	// Setup Fiber app
 	app := fiber.New()
 	RegisterAuthRoutes(app)
 
+	mr := testutils.SetupTestRedis(t)
+
 	// Create test user
-	testUser := testutils.CreateTestUser(t, testDB, validTestUserEmail, validTestUserPassword)
+	testutils.CreateTestUser(t, testDB, validTestUserEmail, validTestUserPassword)
 
 	// Cleanup
 	t.Cleanup(func() {
@@ -55,11 +54,11 @@ func setupTestApp(t *testing.T) (*fiber.App, *user.User) {
 		mr.Close()
 	})
 
-	return app, testUser
+	return app
 }
 
 func TestAuthController_Login(t *testing.T) {
-	app, _ := setupTestApp(t)
+	app := setupTestApp(t)
 
 	t.Run("Success", func(t *testing.T) {
 		loginData := LoginDTO{
@@ -162,7 +161,7 @@ func TestAuthController_Login(t *testing.T) {
 }
 
 func TestAuthController_Logout(t *testing.T) {
-	app, _ := setupTestApp(t)
+	app := setupTestApp(t)
 
 	t.Run("Success", func(t *testing.T) {
 		loginData := LoginDTO{
@@ -212,7 +211,7 @@ func TestAuthController_Logout(t *testing.T) {
 }
 
 func TestAuthController_RefreshToken(t *testing.T) {
-	app, _ := setupTestApp(t)
+	app := setupTestApp(t)
 
 	t.Run("Success", func(t *testing.T) {
 		loginData := LoginDTO{
@@ -278,7 +277,7 @@ func TestAuthController_RefreshToken(t *testing.T) {
 }
 
 func TestAuthController_GoogleLogin(t *testing.T) {
-	app, _ := setupTestApp(t)
+	app := setupTestApp(t)
 
 	t.Run("Redirects to Google OAuth URL", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
@@ -295,6 +294,35 @@ func TestAuthController_GoogleLogin(t *testing.T) {
 		assert.Contains(t, location, "redirect_uri=")
 		assert.Contains(t, location, "scope=")
 		assert.Contains(t, location, "state=")
+
+		parsedURL, err := url.Parse(location)
+		assert.NoError(t, err)
+		state := parsedURL.Query().Get("state")
+		assert.NotEmpty(t, state, "State parameter should be present")
+
+		exists, err := database.RDB.Client.Exists(req.Context(), fmt.Sprintf("oauth_state:%s", state)).Result()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), exists, "State should be stored in Redis")
+	})
+
+	t.Run("Generates unique state for each request", func(t *testing.T) {
+		req1 := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
+		resp1, err := app.Test(req1)
+		assert.NoError(t, err)
+
+		location1 := resp1.Header.Get("Location")
+		parsedURL1, _ := url.Parse(location1)
+		state1 := parsedURL1.Query().Get("state")
+
+		req2 := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
+		resp2, err := app.Test(req2)
+		assert.NoError(t, err)
+
+		location2 := resp2.Header.Get("Location")
+		parsedURL2, _ := url.Parse(location2)
+		state2 := parsedURL2.Query().Get("state")
+
+		assert.NotEqual(t, state1, state2, "Each request should generate a unique state")
 	})
 
 	t.Run("Contains correct OAuth scopes", func(t *testing.T) {
@@ -321,19 +349,6 @@ func TestAuthController_GoogleLogin(t *testing.T) {
 		}
 	})
 
-	t.Run("Includes state parameter", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
-
-		resp, err := app.Test(req)
-		assert.NoError(t, err)
-
-		location := resp.Header.Get("Location")
-		state := os.Getenv("GOOGLE_STATE")
-		if state != "" {
-			assert.Contains(t, location, "state="+state)
-		}
-	})
-
 	t.Run("Uses correct redirect URI", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
 
@@ -342,69 +357,104 @@ func TestAuthController_GoogleLogin(t *testing.T) {
 
 		location := resp.Header.Get("Location")
 		parsed, err := url.Parse(location)
-		if err != nil {
-			panic(err)
-		}
+		assert.NoError(t, err)
 		redirect := parsed.Query().Get("redirect_uri")
 
 		assert.Contains(t, redirect, "http")
 		assert.Contains(t, redirect, "/api/auth/google/callback")
 	})
-}
 
-func TestAuthController_GoogleCallback(t *testing.T) {
-	app, _ := setupTestApp(t)
-
-	t.Run("Returns error on invalid state", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state=invalid_state&code=test_code", nil)
+	t.Run("State has minimum length for security", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
-		body := make([]byte, resp.ContentLength)
-		_, err = resp.Body.Read(body)
-		if err != nil && err.Error() != "EOF" {
-			t.Logf("Warning: Failed to read response body: %v", err)
-		}
-		assert.Contains(t, string(body), "Invalid OAuth state")
+		location := resp.Header.Get("Location")
+		parsedURL, _ := url.Parse(location)
+		state := parsedURL.Query().Get("state")
+
+		// Base64 encoded 32 bytes should be at least 40 characters
+		assert.GreaterOrEqual(t, len(state), 40, "State should be sufficiently long for security")
 	})
+}
 
-	t.Run("Returns error on missing state", func(t *testing.T) {
+func TestAuthController_GoogleCallback(t *testing.T) {
+	app := setupTestApp(t)
+
+	getValidState := func(t *testing.T) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+
+		location := resp.Header.Get("Location")
+		parsedURL, err := url.Parse(location)
+		assert.NoError(t, err)
+
+		return parsedURL.Query().Get("state")
+	}
+
+	t.Run("Returns error on missing state parameter", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=test_code", nil)
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response["error"], "Missing OAuth state parameter")
+	})
+
+	t.Run("Returns error on invalid state", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state=invalid_random_state&code=test_code", nil)
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response["error"], "Invalid or expired OAuth state")
 	})
 
 	t.Run("Returns error on missing code", func(t *testing.T) {
-		state := os.Getenv("GOOGLE_STATE")
+		state := getValidState(t)
 		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state="+state, nil)
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 		var response map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Contains(t, response, "error")
+		assert.Contains(t, response["error"], "Missing authorization code")
 	})
 
-	t.Run("Returns error on invalid code", func(t *testing.T) {
-		state := os.Getenv("GOOGLE_STATE")
-		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state="+state+"&code=invalid_code_12345", nil)
+	t.Run("Deletes state after use (prevents replay)", func(t *testing.T) {
+		state := getValidState(t)
 
-		resp, err := app.Test(req)
+		// First use - should work (but fail at code exchange)
+		req1 := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state="+state+"&code=test_code", nil)
+		resp1, err := app.Test(req1)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		// Will fail at code exchange, but state should be deleted
+		assert.Equal(t, http.StatusInternalServerError, resp1.StatusCode)
+
+		// Second use - should fail because state was deleted
+		req2 := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state="+state+"&code=test_code", nil)
+		resp2, err := app.Test(req2)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
 
 		var response map[string]interface{}
-		err = json.NewDecoder(resp.Body).Decode(&response)
+		err = json.NewDecoder(resp2.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Contains(t, response, "error")
-		assert.Contains(t, response["error"], "failed to exchange token")
+		assert.Contains(t, response["error"], "Invalid or expired OAuth state")
 	})
 
 	t.Run("Returns error with empty state and code", func(t *testing.T) {
@@ -412,7 +462,7 @@ func TestAuthController_GoogleCallback(t *testing.T) {
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
 
 	t.Run("Handles state with special characters", func(t *testing.T) {
@@ -423,13 +473,18 @@ func TestAuthController_GoogleCallback(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
-	t.Run("Handles code with special characters", func(t *testing.T) {
-		state := os.Getenv("GOOGLE_STATE")
-		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state="+state+"&code=test%2Bcode%3D123", nil)
+	t.Run("Returns error on invalid authorization code", func(t *testing.T) {
+		state := getValidState(t)
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state="+state+"&code=invalid_code_12345", nil)
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response, "error")
 	})
 
 	// Note: Testing successful OAuth flow requires mocking Google's OAuth endpoints
@@ -481,8 +536,10 @@ func TestGetGoogleOAuthConfig(t *testing.T) {
 	t.Run("Has correct redirect URL format", func(t *testing.T) {
 		config := GetGoogleOAuthConfig()
 
-		assert.Regexp(t, `^https?://.*`, config.RedirectURL)
-		assert.Contains(t, config.RedirectURL, "localhost:8080")
+		appURL := os.Getenv("APP_URL")
+		if appURL != "" {
+			assert.Contains(t, config.RedirectURL, appURL)
+		}
 	})
 
 	t.Run("Uses Google OAuth endpoint", func(t *testing.T) {
@@ -490,5 +547,38 @@ func TestGetGoogleOAuthConfig(t *testing.T) {
 
 		assert.Equal(t, "https://oauth2.googleapis.com/token", config.Endpoint.TokenURL)
 		assert.Equal(t, "https://accounts.google.com/o/oauth2/auth", config.Endpoint.AuthURL)
+	})
+}
+
+func TestGenerateOAuthState(t *testing.T) {
+	t.Run("Generates non-empty state", func(t *testing.T) {
+		state, err := generateOAuthState()
+		assert.NoError(t, err)
+		assert.NotEmpty(t, state)
+	})
+
+	t.Run("Generates unique states", func(t *testing.T) {
+		state1, err1 := generateOAuthState()
+		state2, err2 := generateOAuthState()
+
+		assert.NoError(t, err1)
+		assert.NoError(t, err2)
+		assert.NotEqual(t, state1, state2)
+	})
+
+	t.Run("Generates base64 URL-safe string", func(t *testing.T) {
+		state, err := generateOAuthState()
+		assert.NoError(t, err)
+
+		assert.NotContains(t, state, "+")
+		assert.NotContains(t, state, "/")
+	})
+
+	t.Run("Generates sufficiently long state", func(t *testing.T) {
+		state, err := generateOAuthState()
+		assert.NoError(t, err)
+
+		// 32 bytes base64 encoded should be at least 40 characters
+		assert.GreaterOrEqual(t, len(state), 40)
 	})
 }

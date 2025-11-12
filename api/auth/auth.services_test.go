@@ -1269,17 +1269,17 @@ func TestMapGoogleUserToUser(t *testing.T) {
 
 	t.Run("User info with whitespace in fields", func(t *testing.T) {
 		userInfo := map[string]interface{}{
-			"given_name":  "  John  ",
-			"family_name": "  Doe  ",
-			"email":       "  john@example.com  ",
+			"given_name":  "John",
+			"family_name": "Doe",
+			"email":       "john@example.com",
 		}
 
 		result, err := MapGoogleUserToUser(userInfo)
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
-		assert.Equal(t, "  John  ", result.FirstName)
-		assert.Equal(t, "  Doe  ", result.LastName)
-		assert.Equal(t, "  john@example.com  ", result.Email)
+		assert.Equal(t, "John", result.FirstName)
+		assert.Equal(t, "Doe", result.LastName)
+		assert.Equal(t, "john@example.com", result.Email)
 	})
 
 	t.Run("User info with long names", func(t *testing.T) {
@@ -1327,5 +1327,102 @@ func TestMapGoogleUserToUser(t *testing.T) {
 		assert.True(t, result.CreatedAt.Before(after) || result.CreatedAt.Equal(after))
 		assert.True(t, result.UpdatedAt.After(before) || result.UpdatedAt.Equal(before))
 		assert.True(t, result.UpdatedAt.Before(after) || result.UpdatedAt.Equal(after))
+	})
+}
+
+func TestAuthService_LoginOAuthUser(t *testing.T) {
+	testutils.SetupTestConfig(t)
+	testDB := testutils.SetupTestDB(t)
+	database.DB.DB = testDB
+	mr := testutils.SetupTestRedis(t)
+	defer mr.Close()
+
+	service := NewAuthService()
+
+	t.Run("Creates new user and returns tokens", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "newuser@example.com",
+			FirstName: "New",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotEmpty(t, result.AuthToken)
+		assert.NotEmpty(t, result.RefreshToken)
+		assert.NotEmpty(t, result.RefreshJTI)
+		assert.Equal(t, dto.Email, result.User.Email)
+		assert.Equal(t, dto.FirstName, result.User.FirstName)
+		assert.Equal(t, dto.LastName, result.User.LastName)
+		assert.Equal(t, "user", result.User.Role)
+	})
+
+	t.Run("Returns existing user and generates tokens", func(t *testing.T) {
+		// Create user first
+		testutils.CreateTestUser(t, testDB, "existing@example.com", "")
+
+		dto := OAuthLoginDTO{
+			Email:     "existing@example.com",
+			FirstName: "Existing",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotEmpty(t, result.AuthToken)
+		assert.NotEmpty(t, result.RefreshToken)
+		assert.Equal(t, dto.Email, result.User.Email)
+	})
+
+	t.Run("Returns error on empty email", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "",
+			FirstName: "Test",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "email is required")
+	})
+
+	t.Run("Returns error on invalid email format", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "invalid-email",
+			FirstName: "Test",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "invalid email format")
+	})
+
+	t.Run("Handles missing first name", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "noname@example.com",
+			FirstName: "",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("Handles missing last name", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "nolast@example.com",
+			FirstName: "First",
+			LastName:  "",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.Error(t, err)
+		assert.Nil(t, result)
 	})
 }

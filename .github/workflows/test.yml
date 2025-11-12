@@ -75,7 +75,6 @@ jobs:
           REDIS_PASSWORD: ""
 
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          GOOGLE_STATE: testing_state
           GO_ENV: test
           APP_PORT: 8080
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
