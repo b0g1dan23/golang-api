@@ -1,6 +1,10 @@
 package auth
 
-import "github.com/gofiber/fiber/v2"
+import (
+	"os"
+
+	"github.com/gofiber/fiber/v2"
+)
 
 func RegisterAuthRoutes(app *fiber.App) {
 	controller := NewAuthController()
@@ -9,6 +13,10 @@ func RegisterAuthRoutes(app *fiber.App) {
 	auth.Post("/logout", controller.Logout)
 	auth.Post("/refresh", controller.RefreshToken)
 
-	auth.Get("/google/login", controller.GoogleLogin)
-	auth.Get("/google/callback", controller.GoogleCallback)
+	google_client_id := os.Getenv("GOOGLE_CLIENT_ID")
+	google_secret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	if google_client_id != "" && google_secret != "" {
+		auth.Get("/google/login", controller.GoogleLogin)
+		auth.Get("/google/callback", controller.GoogleCallback)
+	}
 }

@@ -278,6 +278,12 @@ func TestAuthController_RefreshToken(t *testing.T) {
 
 func TestAuthController_GoogleLogin(t *testing.T) {
 	app := setupTestApp(t)
+	google_client_id := os.Getenv("GOOGLE_CLIENT_ID")
+	google_secret := os.Getenv("GOOGLE_CLIENT_SECRET")
+
+	if google_client_id == "" || google_secret == "" {
+		t.Skip("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set; skipping Google OAuth tests")
+	}
 
 	t.Run("Redirects to Google OAuth URL", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/login", nil)
@@ -381,6 +387,12 @@ func TestAuthController_GoogleLogin(t *testing.T) {
 
 func TestAuthController_GoogleCallback(t *testing.T) {
 	app := setupTestApp(t)
+	google_client_id := os.Getenv("GOOGLE_CLIENT_ID")
+	google_secret := os.Getenv("GOOGLE_CLIENT_SECRET")
+
+	if google_client_id == "" || google_secret == "" {
+		t.Skip("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set; skipping Google OAuth tests")
+	}
 
 	getValidState := func(t *testing.T) string {
 		t.Helper()
