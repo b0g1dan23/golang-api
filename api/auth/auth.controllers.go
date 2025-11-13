@@ -373,7 +373,7 @@ func (c *AuthController) RegisterUser(ctx *fiber.Ctx) error {
 	})
 	if err != nil {
 		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
-			Error: fmt.Sprintf("Failed to generate tokens: %v", err),
+			Error: fmt.Sprintf("failed to generate tokens: %v", err),
 		})
 	}
 
