@@ -55,28 +55,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Missing OAuth state parameter or authorization code",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Invalid or expired OAuth state",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     }
                 }
@@ -99,10 +90,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Failed to generate OAuth state",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     }
                 }
@@ -143,28 +131,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Invalid request body",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Invalid credentials",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     }
                 }
@@ -205,19 +184,13 @@ const docTemplate = `{
                     "400": {
                         "description": "No refresh token found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Invalid token",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     }
                 }
@@ -252,28 +225,19 @@ const docTemplate = `{
                     "400": {
                         "description": "No refresh token cookie found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Token revoked or invalid",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Failed to store refresh token",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     }
                 }
@@ -313,19 +277,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Invalid request body",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     }
                 }

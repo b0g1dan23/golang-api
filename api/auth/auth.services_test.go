@@ -637,7 +637,6 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	sharedTestUser := testutils.CreateTestUser(t, testDB, testEmail, "TestPassword123!")
 
 	t.Run("Successfully refresh token with valid refresh token", func(t *testing.T) {
-		fmt.Println(sharedTestUser)
 		jwtTokenData := JWTData{
 			ID:    sharedTestUser.ID,
 			Role:  sharedTestUser.Role,
@@ -660,7 +659,6 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		assert.NotEqual(t, oldRefreshToken, result.RefreshToken)
 
 		authClaims, err := parseJWT(result.AuthToken)
-		fmt.Println(authClaims)
 		assert.NoError(t, err)
 		assert.Equal(t, jwtTokenData.ID, authClaims.ID)
 		assert.Equal(t, jwtTokenData.Email, authClaims.Email)

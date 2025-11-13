@@ -99,21 +99,15 @@ paths:
         "400":
           description: Missing OAuth state parameter or authorization code
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
         "401":
           description: Invalid or expired OAuth state
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
         "500":
           description: Internal server error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
       summary: Google OAuth callback
       tags:
       - auth
@@ -128,9 +122,7 @@ paths:
         "500":
           description: Failed to generate OAuth state
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
       summary: Initiate Google OAuth login
       tags:
       - auth
@@ -157,21 +149,15 @@ paths:
         "400":
           description: Invalid request body
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
         "401":
           description: Invalid credentials
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
         "500":
           description: Internal server error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
       summary: User login
       tags:
       - auth
@@ -194,15 +180,11 @@ paths:
         "400":
           description: No refresh token found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
         "401":
           description: Invalid token
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
       security:
       - BearerAuth: []
       summary: User logout
@@ -224,21 +206,15 @@ paths:
         "400":
           description: No refresh token cookie found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
         "401":
           description: Token revoked or invalid
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
         "500":
           description: Failed to store refresh token
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Refresh access token
@@ -266,15 +242,11 @@ paths:
         "400":
           description: Invalid request body
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
         "500":
           description: Internal server error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/api.ErrorResponse'
       summary: Register a new user
       tags:
       - auth

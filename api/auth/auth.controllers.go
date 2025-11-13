@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"boge.dev/golang-api/api"
 	user "boge.dev/golang-api/api/user"
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
@@ -90,15 +91,15 @@ func setCookie(ctx *fiber.Ctx, data CookieData) {
 // @Produce      json
 // @Param        login  body      LoginDTO  true  "Login credentials"
 // @Success      200    {object}  map[string]interface{} "user, access_token, refresh_token"
-// @Failure      400    {object}  map[string]string "Invalid request body"
-// @Failure      401    {object}  map[string]string "Invalid credentials"
-// @Failure      500    {object}  map[string]string "Internal server error"
+// @Failure      400    {object}  api.ErrorResponse "Invalid request body"
+// @Failure      401    {object}  api.ErrorResponse "Invalid credentials"
+// @Failure      500    {object}  api.ErrorResponse "Internal server error"
 // @Router       /auth/login [post]
 func (c *AuthController) Login(ctx *fiber.Ctx) error {
 	var loginData LoginDTO
 	if err := ctx.BodyParser(&loginData); err != nil {
-		return ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
+		return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "invalid request body",
 		})
 	}
 
@@ -107,15 +108,15 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 
 	loginRes, err := c.AuthService.Login(loginData)
 	if err != nil {
-		return ctx.Status(http.StatusUnauthorized).JSON(fiber.Map{
-			"error": err.Error(),
+		return ctx.Status(http.StatusUnauthorized).JSON(api.ErrorResponse{
+			Error: err.Error(),
 		})
 	}
 
 	err = saveUserInCookie(ctx, loginRes)
 	if err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: err.Error(),
 		})
 	}
 
@@ -134,8 +135,8 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 // @Produce      json
 // @Param        refreshToken  body      LogoutRequest  false  "Refresh token (optional if cookie present)"
 // @Success      204           "Successfully logged out"
-// @Failure      400           {object}  map[string]string "No refresh token found"
-// @Failure      401           {object}  map[string]string "Invalid token"
+// @Failure      400           {object}  api.ErrorResponse "No refresh token found"
+// @Failure      401           {object}  api.ErrorResponse "Invalid token"
 // @Router       /auth/logout [post]
 // @Security     BearerAuth
 func (c *AuthController) Logout(ctx *fiber.Ctx) error {
@@ -145,15 +146,15 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 		var refreshBody LogoutRequest
 
 		if err := ctx.BodyParser(&refreshBody); err != nil {
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "No refresh token found",
+			return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
+				Error: "no refresh token found",
 			})
 		}
 
 		if refreshBody.RefreshToken == "" {
 			ctx.ClearCookie("__Host-refresh_token", "__Secure-auth_token")
-			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Refresh token not provided",
+			return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
+				Error: "refresh token not provided",
 			})
 		}
 
@@ -161,8 +162,8 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 	}
 
 	if err := c.AuthService.Logout(refreshToken); err != nil {
-		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": err.Error(),
+		return ctx.Status(fiber.StatusUnauthorized).JSON(api.ErrorResponse{
+			Error: err.Error(),
 		})
 	}
 
@@ -178,23 +179,23 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 // @Accept       json
 // @Produce      json
 // @Success      200  {object}  map[string]interface{} "user, access_token, refresh_token"
-// @Failure      400  {object}  map[string]string "No refresh token cookie found"
-// @Failure      401  {object}  map[string]string "Token revoked or invalid"
-// @Failure      500  {object}  map[string]string "Failed to store refresh token"
+// @Failure      400  {object}  api.ErrorResponse "No refresh token cookie found"
+// @Failure      401  {object}  api.ErrorResponse "Token revoked or invalid"
+// @Failure      500  {object}  api.ErrorResponse "Failed to store refresh token"
 // @Router       /auth/refresh [post]
 // @Security     BearerAuth
 func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 	oldToken := ctx.Cookies("__Host-refresh_token")
 	if oldToken == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "No refresh token cookie found",
+		return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "no refresh token cookie found",
 		})
 	}
 
 	loginRes, err := c.AuthService.RefreshToken(oldToken)
 	if err != nil {
-		return ctx.Status(http.StatusUnauthorized).JSON(fiber.Map{
-			"error": "Token revoked, please log in again",
+		return ctx.Status(http.StatusUnauthorized).JSON(api.ErrorResponse{
+			Error: "token revoked, please log in again",
 		})
 	}
 
@@ -203,8 +204,8 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 		loginRes.RefreshToken,
 		constants.MaxRefreshTokenAge).Err()
 	if err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to store refresh token",
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "failed to store refresh token",
 		})
 	}
 
@@ -230,13 +231,13 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 // @Tags         auth
 // @Produce      json
 // @Success      302  "Redirects to Google OAuth"
-// @Failure      500  {object}  map[string]string "Failed to generate OAuth state"
+// @Failure      500  {object}  api.ErrorResponse "Failed to generate OAuth state"
 // @Router       /auth/google/login [get]
 func (c *AuthController) GoogleLogin(ctx *fiber.Ctx) error {
 	state, err := generateOAuthState()
 	if err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to generate OAuth state",
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "failed to generate OAuth state",
 		})
 	}
 
@@ -245,8 +246,8 @@ func (c *AuthController) GoogleLogin(ctx *fiber.Ctx) error {
 		"1",
 		10*time.Minute).Err()
 	if err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to store OAuth state",
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "failed to store OAuth state",
 		})
 	}
 
@@ -264,23 +265,23 @@ func (c *AuthController) GoogleLogin(ctx *fiber.Ctx) error {
 // @Param        state  query     string  true  "OAuth state parameter"
 // @Param        code   query     string  true  "OAuth authorization code"
 // @Success      200    {object}  map[string]interface{} "user, access_token, refresh_token"
-// @Failure      400    {object}  map[string]string "Missing OAuth state parameter or authorization code"
-// @Failure      401    {object}  map[string]string "Invalid or expired OAuth state"
-// @Failure      500    {object}  map[string]string "Internal server error"
+// @Failure      400    {object}  api.ErrorResponse "Missing OAuth state parameter or authorization code"
+// @Failure      401    {object}  api.ErrorResponse "Invalid or expired OAuth state"
+// @Failure      500    {object}  api.ErrorResponse "Internal server error"
 // @Router       /auth/google/callback [get]
 func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 	state := ctx.Query("state")
 	if state == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Missing OAuth state parameter",
+		return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "Missing OAuth state parameter",
 		})
 	}
 
 	exists, err := database.RDB.Client.Exists(ctx.Context(),
 		fmt.Sprintf("oauth_state:%s", state)).Result()
 	if err != nil || exists == 0 {
-		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": "Invalid or expired OAuth state",
+		return ctx.Status(fiber.StatusUnauthorized).JSON(api.ErrorResponse{
+			Error: "invalid or expired OAuth state",
 		})
 	}
 
@@ -290,8 +291,8 @@ func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 
 	code := ctx.Query("code")
 	if code == "" {
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Missing authorization code",
+		return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "missing authorization code",
 		})
 	}
 
@@ -313,8 +314,8 @@ func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 
 	err = saveUserInCookie(ctx, loginRes)
 	if err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: err.Error(),
 		})
 	}
 
@@ -333,15 +334,15 @@ func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 // @Produce      json
 // @Param        user  body      RegisterDTO  true  "User registration data"
 // @Success      201   {object}  user.User  "User created successfully"
-// @Failure      400   {object}  map[string]string "Invalid request body"
-// @Failure      500   {object}  map[string]string "Internal server error"
+// @Failure      400   {object}  api.ErrorResponse "Invalid request body"
+// @Failure      500   {object}  api.ErrorResponse "Internal server error"
 // @Router       /auth/register [post]
 func (c *AuthController) RegisterUser(ctx *fiber.Ctx) error {
 	var registerData RegisterDTO
 
 	if err := ctx.BodyParser(&registerData); err != nil {
-		return ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
+		return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "invalid request body",
 		})
 	}
 
@@ -359,8 +360,8 @@ func (c *AuthController) RegisterUser(ctx *fiber.Ctx) error {
 
 	createdUser, err := c.AuthService.UserService.CreateUser(&newUser)
 	if err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: fmt.Sprintf("failed to create user: %v", err),
 		})
 	}
 
@@ -371,15 +372,15 @@ func (c *AuthController) RegisterUser(ctx *fiber.Ctx) error {
 		ClientIP: ctx.IP(),
 	})
 	if err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": fmt.Sprintf("Failed to generate tokens: %v", err),
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: fmt.Sprintf("Failed to generate tokens: %v", err),
 		})
 	}
 
 	err = saveUserInCookie(ctx, loginRes)
 	if err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: err.Error(),
 		})
 	}
 

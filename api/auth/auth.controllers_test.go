@@ -216,7 +216,7 @@ func TestAuthController_RegisterUser(t *testing.T) {
 		var response map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Equal(t, "Invalid request body", response["error"])
+		assert.Equal(t, "invalid request body", response["error"])
 	})
 
 	t.Run("Duplicate email", func(t *testing.T) {
@@ -419,7 +419,7 @@ func TestAuthController_Logout(t *testing.T) {
 		var response map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Equal(t, "Refresh token not provided", response["error"])
+		assert.Equal(t, "refresh token not provided", response["error"])
 	})
 
 	t.Run("Invalid JSON body", func(t *testing.T) {
@@ -452,7 +452,7 @@ func TestAuthController_Logout(t *testing.T) {
 		var response map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Equal(t, "No refresh token found", response["error"])
+		assert.Equal(t, "no refresh token found", response["error"])
 	})
 
 	t.Run("Invalid refresh token", func(t *testing.T) {
@@ -679,7 +679,7 @@ func TestAuthController_RefreshToken(t *testing.T) {
 		var response map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Equal(t, "No refresh token cookie found", response["error"])
+		assert.Equal(t, "no refresh token cookie found", response["error"])
 	})
 
 	t.Run("Valid auth but invalid refresh token", func(t *testing.T) {
@@ -905,7 +905,7 @@ func TestAuthController_GoogleCallback(t *testing.T) {
 		var response map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Contains(t, response["error"], "Invalid or expired OAuth state")
+		assert.Contains(t, response["error"], "invalid or expired OAuth state")
 	})
 
 	t.Run("Returns error on missing code", func(t *testing.T) {
@@ -919,7 +919,7 @@ func TestAuthController_GoogleCallback(t *testing.T) {
 		var response map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Contains(t, response["error"], "Missing authorization code")
+		assert.Contains(t, response["error"], "missing authorization code")
 	})
 
 	t.Run("Deletes state after use (prevents replay)", func(t *testing.T) {
@@ -941,7 +941,7 @@ func TestAuthController_GoogleCallback(t *testing.T) {
 		var response map[string]interface{}
 		err = json.NewDecoder(resp2.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Contains(t, response["error"], "Invalid or expired OAuth state")
+		assert.Contains(t, response["error"], "invalid or expired OAuth state")
 	})
 
 	t.Run("Returns error with empty state and code", func(t *testing.T) {
