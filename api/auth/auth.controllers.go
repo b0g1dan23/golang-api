@@ -95,29 +95,41 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.Status(http.StatusOK).JSON(fiber.Map{
-		"user": loginRes.User,
+		"user":          loginRes.User,
+		"access_token":  loginRes.AuthToken,
+		"refresh_token": loginRes.RefreshToken,
 	})
 }
 
 func (c *AuthController) Logout(ctx *fiber.Ctx) error {
-	refreshCookie := ctx.Cookies("__Host-refresh_token")
-	if refreshCookie == "" {
-		ctx.ClearCookie("__Host-refresh_token")
-		ctx.ClearCookie("__Secure-auth_token")
-		return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "No refresh token cookie found",
-		})
+	refreshToken := ctx.Cookies("__Host-refresh_token")
+
+	if refreshToken == "" {
+		var refreshBody LogoutRequest
+
+		if err := ctx.BodyParser(&refreshBody); err != nil {
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "No refresh token found",
+			})
+		}
+
+		if refreshBody.RefreshToken == "" {
+			ctx.ClearCookie("__Host-refresh_token", "__Secure-auth_token")
+			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Refresh token not provided",
+			})
+		}
+
+		refreshToken = refreshBody.RefreshToken
 	}
 
-	err := c.AuthService.Logout(refreshCookie)
-	if err != nil {
-		return ctx.Status(http.StatusUnauthorized).JSON(fiber.Map{
+	if err := c.AuthService.Logout(refreshToken); err != nil {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
 
-	ctx.ClearCookie("__Host-refresh_token")
-	ctx.ClearCookie("__Secure-auth_token")
+	ctx.ClearCookie("__Host-refresh_token", "__Secure-auth_token")
 
 	return ctx.SendStatus(fiber.StatusNoContent)
 }
@@ -157,7 +169,9 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 	})
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-		"user": loginRes.User,
+		"user":          loginRes.User,
+		"access_token":  loginRes.AuthToken,
+		"refresh_token": loginRes.RefreshToken,
 	})
 }
 
@@ -250,6 +264,8 @@ func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 	})
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-		"user": loginRes.User,
+		"user":          loginRes.User,
+		"access_token":  loginRes.AuthToken,
+		"refresh_token": loginRes.RefreshToken,
 	})
 }
