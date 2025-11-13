@@ -273,7 +273,7 @@ func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 	state := ctx.Query("state")
 	if state == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
-			Error: "Missing OAuth state parameter",
+			Error: "missing OAuth state parameter",
 		})
 	}
 
