@@ -67,14 +67,6 @@ func ValidateOAuthLoginDTO(dto OAuthLoginDTO) error {
 		return errors.New("email is required")
 	}
 
-	if dto.FirstName == "" {
-		return errors.New("first name is required")
-	}
-
-	if dto.LastName == "" {
-		return errors.New("last name is required")
-	}
-
 	// Basic email validation
 	if !strings.Contains(dto.Email, "@") {
 		return errors.New("invalid email format")

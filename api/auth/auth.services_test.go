@@ -637,7 +637,6 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	sharedTestUser := testutils.CreateTestUser(t, testDB, testEmail, "TestPassword123!")
 
 	t.Run("Successfully refresh token with valid refresh token", func(t *testing.T) {
-		fmt.Println(sharedTestUser)
 		jwtTokenData := JWTData{
 			ID:    sharedTestUser.ID,
 			Role:  sharedTestUser.Role,
@@ -660,7 +659,6 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		assert.NotEqual(t, oldRefreshToken, result.RefreshToken)
 
 		authClaims, err := parseJWT(result.AuthToken)
-		fmt.Println(authClaims)
 		assert.NoError(t, err)
 		assert.Equal(t, jwtTokenData.ID, authClaims.ID)
 		assert.Equal(t, jwtTokenData.Email, authClaims.Email)
@@ -1373,29 +1371,5 @@ func TestAuthService_LoginOAuthUser(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "invalid email format")
-	})
-
-	t.Run("Handles missing first name", func(t *testing.T) {
-		dto := OAuthLoginDTO{
-			Email:     "noname@example.com",
-			FirstName: "",
-			LastName:  "User",
-		}
-
-		result, err := service.LoginOAuthUser(dto)
-		assert.Error(t, err)
-		assert.Nil(t, result)
-	})
-
-	t.Run("Handles missing last name", func(t *testing.T) {
-		dto := OAuthLoginDTO{
-			Email:     "nolast@example.com",
-			FirstName: "First",
-			LastName:  "",
-		}
-
-		result, err := service.LoginOAuthUser(dto)
-		assert.Error(t, err)
-		assert.Nil(t, result)
 	})
 }

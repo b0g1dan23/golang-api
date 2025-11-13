@@ -11,6 +11,13 @@ type LoginDTO struct {
 	ClientIP string `json:"-"` // Not from request body, set by controller
 }
 
+type RegisterDTO struct {
+	Email     string `json:"email" binding:"required,email"`
+	Password  string `json:"password" binding:"required,min=6"`
+	FirstName string `json:"firstname" binding:"required"`
+	LastName  string `json:"lastname" binding:"required"`
+}
+
 type LogoutRequest struct {
 	RefreshToken string `json:"refreshToken"`
 }

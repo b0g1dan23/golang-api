@@ -5,13 +5,20 @@ import (
 	"os"
 	"strings"
 
-	"boge.dev/golang-api/api/auth"
-	"boge.dev/golang-api/api/user"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func RequireRoles(allowedRoles ...user.Role) fiber.Handler {
+type JWTData struct {
+	ID    string `json:"sub"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
+	JTI   string `json:"jti,omitempty"`
+
+	jwt.RegisteredClaims
+}
+
+func RequireRoles(allowedRoles ...string) fiber.Handler {
 	jwtSecret := os.Getenv("JWT_SECRET")
 
 	if jwtSecret == "" {
@@ -40,7 +47,7 @@ func RequireRoles(allowedRoles ...user.Role) fiber.Handler {
 			})
 		}
 
-		token, err := jwt.ParseWithClaims(tokenString, &auth.JWTData{}, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwt.ParseWithClaims(tokenString, &JWTData{}, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
@@ -53,7 +60,7 @@ func RequireRoles(allowedRoles ...user.Role) fiber.Handler {
 			})
 		}
 
-		claims, ok := token.Claims.(*auth.JWTData)
+		claims, ok := token.Claims.(*JWTData)
 		if !ok {
 			return ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "Invalid token claims",

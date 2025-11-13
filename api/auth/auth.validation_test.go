@@ -114,15 +114,4 @@ func TestValidateOAuthLoginDTO(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid email format")
 	})
-
-	t.Run("Missing names doesn't pass", func(t *testing.T) {
-		dto := OAuthLoginDTO{
-			Email:     "test@example.com",
-			FirstName: "",
-			LastName:  "",
-		}
-
-		err := ValidateOAuthLoginDTO(dto)
-		assert.Error(t, err)
-	})
 }
