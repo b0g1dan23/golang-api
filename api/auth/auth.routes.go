@@ -3,6 +3,7 @@ package auth
 import (
 	"os"
 
+	"boge.dev/golang-api/middleware"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -10,8 +11,8 @@ func RegisterAuthRoutes(app *fiber.App) {
 	controller := NewAuthController()
 	auth := app.Group("/api/auth")
 	auth.Post("/login", controller.Login)
-	auth.Post("/logout", controller.Logout)
-	auth.Post("/refresh", controller.RefreshToken)
+	auth.Post("/logout", middleware.RequireRoles("user"), controller.Logout)
+	auth.Post("/refresh", middleware.RequireRoles("user"), controller.RefreshToken)
 	auth.Post("/register", controller.RegisterUser)
 
 	google_client_id := os.Getenv("GOOGLE_CLIENT_ID")

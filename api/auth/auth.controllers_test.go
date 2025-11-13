@@ -281,7 +281,7 @@ func TestAuthController_RegisterUser(t *testing.T) {
 func TestAuthController_Logout(t *testing.T) {
 	app := setupTestApp(t)
 
-	t.Run("Success", func(t *testing.T) {
+	t.Run("Success with cookie", func(t *testing.T) {
 		loginData := LoginDTO{
 			Email:    validTestUserEmail,
 			Password: validTestUserPassword,
@@ -298,17 +298,23 @@ func TestAuthController_Logout(t *testing.T) {
 			t.Fatal("Failed to perform login request\n", err.Error())
 		}
 
-		// Extract refresh token from login response
-		var refreshToken string
+		// Extract both auth and refresh tokens from login response
+		var authToken, refreshToken string
 		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "__Secure-auth_token" {
+				authToken = cookie.Value
+			}
 			if cookie.Name == "__Host-refresh_token" {
 				refreshToken = cookie.Value
-				break
 			}
 		}
 
-		// Test logout
+		// Test logout with auth cookie (middleware requires it)
 		logoutReq := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+		logoutReq.AddCookie(&http.Cookie{
+			Name:  "__Secure-auth_token",
+			Value: authToken,
+		})
 		logoutReq.AddCookie(&http.Cookie{
 			Name:  "__Host-refresh_token",
 			Value: refreshToken,
@@ -336,16 +342,18 @@ func TestAuthController_Logout(t *testing.T) {
 			t.Fatal("Failed to perform login request\n", err.Error())
 		}
 
-		// Extract refresh token from login response
-		var refreshToken string
+		// Extract tokens from login response
+		var authToken, refreshToken string
 		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "__Secure-auth_token" {
+				authToken = cookie.Value
+			}
 			if cookie.Name == "__Host-refresh_token" {
 				refreshToken = cookie.Value
-				break
 			}
 		}
 
-		// Test logout with body (mobile scenario)
+		// Test logout with body (mobile scenario) - use Bearer token for auth
 		logoutBody := LogoutRequest{
 			RefreshToken: refreshToken,
 		}
@@ -354,27 +362,46 @@ func TestAuthController_Logout(t *testing.T) {
 
 		logoutReq := httptest.NewRequest(http.MethodPost, "/api/auth/logout", bytes.NewReader(logoutBodyBytes))
 		logoutReq.Header.Set("Content-Type", "application/json")
+		logoutReq.Header.Set("Authorization", "Bearer "+authToken)
 
 		logoutResp, err := app.Test(logoutReq)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusNoContent, logoutResp.StatusCode)
 	})
 
-	t.Run("No cookie and no body", func(t *testing.T) {
+	t.Run("No cookie and no body - Unauthorized", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 		var response map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Equal(t, "No refresh token found", response["error"])
+		assert.Equal(t, "No authentication token provided", response["error"])
 	})
 
 	t.Run("Empty refresh token in body", func(t *testing.T) {
+		// First login to get auth token
+		loginData := LoginDTO{
+			Email:    validTestUserEmail,
+			Password: validTestUserPassword,
+		}
+		loginBody, _ := json.Marshal(loginData)
+		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+		loginReq.Header.Set("Content-Type", "application/json")
+		loginResp, _ := app.Test(loginReq)
+
+		var authToken string
+		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "__Secure-auth_token" {
+				authToken = cookie.Value
+				break
+			}
+		}
+
 		logoutBody := LogoutRequest{
 			RefreshToken: "",
 		}
@@ -383,6 +410,7 @@ func TestAuthController_Logout(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
@@ -395,8 +423,27 @@ func TestAuthController_Logout(t *testing.T) {
 	})
 
 	t.Run("Invalid JSON body", func(t *testing.T) {
+		// First login to get auth token
+		loginData := LoginDTO{
+			Email:    validTestUserEmail,
+			Password: validTestUserPassword,
+		}
+		loginBody, _ := json.Marshal(loginData)
+		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+		loginReq.Header.Set("Content-Type", "application/json")
+		loginResp, _ := app.Test(loginReq)
+
+		var authToken string
+		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "__Secure-auth_token" {
+				authToken = cookie.Value
+				break
+			}
+		}
+
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", bytes.NewReader([]byte("invalid json")))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
@@ -409,6 +456,24 @@ func TestAuthController_Logout(t *testing.T) {
 	})
 
 	t.Run("Invalid refresh token", func(t *testing.T) {
+		// First login to get auth token
+		loginData := LoginDTO{
+			Email:    validTestUserEmail,
+			Password: validTestUserPassword,
+		}
+		loginBody, _ := json.Marshal(loginData)
+		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+		loginReq.Header.Set("Content-Type", "application/json")
+		loginResp, _ := app.Test(loginReq)
+
+		var authToken string
+		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "__Secure-auth_token" {
+				authToken = cookie.Value
+				break
+			}
+		}
+
 		logoutBody := LogoutRequest{
 			RefreshToken: "invalid.token.here",
 		}
@@ -417,6 +482,7 @@ func TestAuthController_Logout(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+authToken)
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
@@ -440,15 +506,21 @@ func TestAuthController_Logout(t *testing.T) {
 			t.Fatal("Failed to perform login request\n", err.Error())
 		}
 
-		var refreshToken string
+		var authToken, refreshToken string
 		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "__Secure-auth_token" {
+				authToken = cookie.Value
+			}
 			if cookie.Name == "__Host-refresh_token" {
 				refreshToken = cookie.Value
-				break
 			}
 		}
 
 		logoutReq := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+		logoutReq.AddCookie(&http.Cookie{
+			Name:  "__Secure-auth_token",
+			Value: authToken,
+		})
 		logoutReq.AddCookie(&http.Cookie{
 			Name:  "__Host-refresh_token",
 			Value: refreshToken,
@@ -461,10 +533,32 @@ func TestAuthController_Logout(t *testing.T) {
 		cookies := logoutResp.Cookies()
 		for _, cookie := range cookies {
 			if cookie.Name == "__Host-refresh_token" || cookie.Name == "__Secure-auth_token" {
-				assert.Equal(t, "", cookie.Value)
-				assert.Equal(t, 0, cookie.MaxAge)
+				assert.Equal(t, "", cookie.Value, "Cookie %s should be cleared", cookie.Name)
+				// Fiber's ClearCookie sets MaxAge to 0, not -1
+				assert.Equal(t, 0, cookie.MaxAge, "Cookie %s MaxAge should be 0", cookie.Name)
 			}
 		}
+	})
+
+	// Additional tests for middleware authentication failures
+	t.Run("Invalid auth token in header", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+		req.Header.Set("Authorization", "Bearer invalid.token.here")
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Equal(t, "Invalid or expired token", response["error"])
+	})
+
+	t.Run("Expired auth token", func(t *testing.T) {
+		// This would require creating an expired token - skipping for now
+		t.Skip("Requires token expiration testing setup")
 	})
 }
 
@@ -488,17 +582,23 @@ func TestAuthController_RefreshToken(t *testing.T) {
 			t.Fatal("Failed to perform login request\n", err.Error())
 		}
 
-		// Extract refresh token
-		var refreshToken string
+		// Extract both auth and refresh tokens
+		var authToken, refreshToken string
 		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "__Secure-auth_token" {
+				authToken = cookie.Value
+			}
 			if cookie.Name == "__Host-refresh_token" {
 				refreshToken = cookie.Value
-				break
 			}
 		}
 
-		// Test refresh
+		// Test refresh with auth token (required by middleware)
 		refreshReq := httptest.NewRequest(http.MethodPost, "/api/auth/refresh", nil)
+		refreshReq.AddCookie(&http.Cookie{
+			Name:  "__Secure-auth_token",
+			Value: authToken,
+		})
 		refreshReq.AddCookie(&http.Cookie{
 			Name:  "__Host-refresh_token",
 			Value: refreshToken,
@@ -513,24 +613,141 @@ func TestAuthController_RefreshToken(t *testing.T) {
 		assert.NotEmpty(t, newCookies)
 	})
 
-	t.Run("No token", func(t *testing.T) {
+	t.Run("No auth token - Unauthorized", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/refresh", nil)
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Equal(t, "No authentication token provided", response["error"])
 	})
 
-	t.Run("Invalid token", func(t *testing.T) {
+	t.Run("Invalid auth token", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/refresh", nil)
 		req.AddCookie(&http.Cookie{
-			Name:  "__Host-refresh_token",
+			Name:  "__Secure-auth_token",
 			Value: "invalid.token.here",
+		})
+		req.AddCookie(&http.Cookie{
+			Name:  "__Host-refresh_token",
+			Value: "some.refresh.token",
 		})
 
 		resp, err := app.Test(req)
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Equal(t, "Invalid or expired token", response["error"])
+	})
+
+	t.Run("Valid auth but no refresh token", func(t *testing.T) {
+		// First login to get auth token
+		loginData := LoginDTO{
+			Email:    validTestUserEmail,
+			Password: validTestUserPassword,
+		}
+		loginBody, _ := json.Marshal(loginData)
+		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+		loginReq.Header.Set("Content-Type", "application/json")
+		loginResp, _ := app.Test(loginReq)
+
+		var authToken string
+		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "__Secure-auth_token" {
+				authToken = cookie.Value
+				break
+			}
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/refresh", nil)
+		req.AddCookie(&http.Cookie{
+			Name:  "__Secure-auth_token",
+			Value: authToken,
+		})
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Equal(t, "No refresh token cookie found", response["error"])
+	})
+
+	t.Run("Valid auth but invalid refresh token", func(t *testing.T) {
+		// First login to get auth token
+		loginData := LoginDTO{
+			Email:    validTestUserEmail,
+			Password: validTestUserPassword,
+		}
+		loginBody, _ := json.Marshal(loginData)
+		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+		loginReq.Header.Set("Content-Type", "application/json")
+		loginResp, _ := app.Test(loginReq)
+
+		var authToken string
+		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "__Secure-auth_token" {
+				authToken = cookie.Value
+				break
+			}
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/refresh", nil)
+		req.AddCookie(&http.Cookie{
+			Name:  "__Secure-auth_token",
+			Value: authToken,
+		})
+		req.AddCookie(&http.Cookie{
+			Name:  "__Host-refresh_token",
+			Value: "invalid.refresh.token",
+		})
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("Mobile - Bearer token auth", func(t *testing.T) {
+		// Login to get tokens
+		loginData := LoginDTO{
+			Email:    validTestUserEmail,
+			Password: validTestUserPassword,
+		}
+		loginBody, _ := json.Marshal(loginData)
+		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+		loginReq.Header.Set("Content-Type", "application/json")
+		loginResp, _ := app.Test(loginReq)
+
+		var authToken, refreshToken string
+		for _, cookie := range loginResp.Cookies() {
+			if cookie.Name == "__Secure-auth_token" {
+				authToken = cookie.Value
+			}
+			if cookie.Name == "__Host-refresh_token" {
+				refreshToken = cookie.Value
+			}
+		}
+
+		// Use Bearer token in header (mobile scenario)
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/refresh", nil)
+		req.Header.Set("Authorization", "Bearer "+authToken)
+		req.AddCookie(&http.Cookie{
+			Name:  "__Host-refresh_token",
+			Value: refreshToken,
+		})
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
 }
 
