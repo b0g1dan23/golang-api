@@ -311,7 +311,7 @@ func CreateTestUser(t *testing.T, db *gorm.DB, email, password string) *user.Use
 		Password:  string(hashedPassword),
 		FirstName: "Test",
 		LastName:  "User",
-		Role:      "user",
+		Role:      user.RoleUser,
 	}
 
 	result := db.Create(testUser)
