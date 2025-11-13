@@ -1,11 +1,18 @@
 package auth
 
-import "boge.dev/golang-api/api/user"
+import (
+	"boge.dev/golang-api/api/user"
+	"github.com/golang-jwt/jwt/v5"
+)
 
 type LoginDTO struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
 	ClientIP string `json:"-"` // Not from request body, set by controller
+}
+
+type LogoutRequest struct {
+	RefreshToken string `json:"refreshToken"`
 }
 
 type OAuthLoginDTO struct {
@@ -19,6 +26,8 @@ type JWTData struct {
 	Email string `json:"email"`
 	Role  string `json:"role"`
 	JTI   string `json:"jti,omitempty"`
+
+	jwt.RegisteredClaims
 }
 
 type LoginResponse struct {
