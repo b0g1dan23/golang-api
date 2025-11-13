@@ -3,11 +3,13 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
 
+	user "boge.dev/golang-api/api/user"
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
 	"github.com/gofiber/fiber/v2"
@@ -34,6 +36,29 @@ func GetGoogleOAuthConfig() *oauth2.Config {
 		},
 		Endpoint: google.Endpoint,
 	}
+}
+
+func saveUserInCookie(ctx *fiber.Ctx, loginRes *LoginResponse) error {
+	// Store the refresh token in Redis
+	err := database.RDB.Client.Set(ctx.Context(),
+		fmt.Sprintf("refresh_token:%s:%s", loginRes.User.ID, loginRes.RefreshJTI),
+		loginRes.RefreshToken,
+		constants.MaxRefreshTokenAge).Err()
+	if err != nil {
+		return errors.New("failed to store refresh token")
+	}
+
+	// Set secure cookies
+	setCookie(ctx, CookieData{
+		Name:  "__Host-refresh_token",
+		Value: loginRes.RefreshToken,
+	})
+	setCookie(ctx, CookieData{
+		Name:  "__Secure-auth_token",
+		Value: loginRes.AuthToken,
+	})
+
+	return nil
 }
 
 func generateOAuthState() (string, error) {
@@ -87,22 +112,10 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 		})
 	}
 
-	setCookie(ctx, CookieData{
-		Name:  "__Secure-auth_token",
-		Value: loginRes.AuthToken,
-	})
-	setCookie(ctx, CookieData{
-		Name:  "__Host-refresh_token",
-		Value: loginRes.RefreshToken,
-	})
-
-	err = database.RDB.Client.Set(ctx.Context(),
-		fmt.Sprintf("refresh_token:%s:%s", loginRes.User.ID, loginRes.RefreshJTI),
-		loginRes.RefreshToken,
-		constants.MaxRefreshTokenAge).Err()
+	err = saveUserInCookie(ctx, loginRes)
 	if err != nil {
 		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to store refresh token",
+			"error": err.Error(),
 		})
 	}
 
@@ -289,40 +302,86 @@ func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 		})
 	}
 
-	loginRes, err := c.AuthService.Login(LoginDTO{
-		Email:    user.Email,
-		ClientIP: ctx.IP(),
+	loginRes, err := c.AuthService.LoginOAuthUser(OAuthLoginDTO{
+		Email: user.Email,
 	})
 	if err != nil {
 		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to generate tokens",
+			"error": err.Error(),
 		})
 	}
 
-	// Store the refresh token in Redis
-	err = database.RDB.Client.Set(ctx.Context(),
-		fmt.Sprintf("refresh_token:%s:%s", loginRes.User.ID, loginRes.RefreshJTI),
-		loginRes.RefreshToken,
-		constants.MaxRefreshTokenAge).Err()
+	err = saveUserInCookie(ctx, loginRes)
 	if err != nil {
 		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to store refresh token",
+			"error": err.Error(),
 		})
 	}
-
-	// Set secure cookies
-	setCookie(ctx, CookieData{
-		Name:  "__Host-refresh_token",
-		Value: loginRes.RefreshToken,
-	})
-	setCookie(ctx, CookieData{
-		Name:  "__Secure-auth_token",
-		Value: loginRes.AuthToken,
-	})
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
 		"user":          loginRes.User,
 		"access_token":  loginRes.AuthToken,
 		"refresh_token": loginRes.RefreshToken,
 	})
+}
+
+// RegisterUser godoc
+// @Summary      Register a new user
+// @Description  Creates a new user account with provided information
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        user  body      RegisterDTO  true  "User registration data"
+// @Success      201   {object}  user.User  "User created successfully"
+// @Failure      400   {object}  map[string]string "Invalid request body"
+// @Failure      500   {object}  map[string]string "Internal server error"
+// @Router       /auth/register [post]
+func (c *AuthController) RegisterUser(ctx *fiber.Ctx) error {
+	var registerData RegisterDTO
+
+	if err := ctx.BodyParser(&registerData); err != nil {
+		return ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Create user from DTO
+	newUser := user.User{
+		Email:     registerData.Email,
+		Password:  registerData.Password,
+		FirstName: registerData.FirstName,
+		LastName:  registerData.LastName,
+		Role:      user.RoleUser,
+	}
+
+	// Save original password for login (CreateUser will hash it)
+	originalPassword := registerData.Password
+
+	createdUser, err := c.AuthService.UserService.CreateUser(&newUser)
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Use original password for login (not the hashed one)
+	loginRes, err := c.AuthService.Login(LoginDTO{
+		Email:    createdUser.Email,
+		Password: originalPassword,
+		ClientIP: ctx.IP(),
+	})
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": fmt.Sprintf("Failed to generate tokens: %v", err),
+		})
+	}
+
+	err = saveUserInCookie(ctx, loginRes)
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return ctx.Status(http.StatusCreated).JSON(createdUser)
 }

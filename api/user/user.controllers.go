@@ -1,9 +1,12 @@
 package user
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type UserController struct {
@@ -12,35 +15,6 @@ type UserController struct {
 
 func NewUserController() *UserController {
 	return &UserController{UserService: NewUserService()}
-}
-
-// RegisterUser godoc
-// @Summary      Register a new user
-// @Description  Creates a new user account with provided information
-// @Tags         users
-// @Accept       json
-// @Produce      json
-// @Param        user  body      User  true  "User registration data"
-// @Success      201   {object}  User  "User created successfully"
-// @Failure      400   {object}  map[string]string "Invalid request body"
-// @Failure      500   {object}  map[string]string "Internal server error"
-// @Router       /users/register [post]
-func (c *UserController) RegisterUser(ctx *fiber.Ctx) error {
-	var user User
-
-	if err := ctx.BodyParser(&user); err != nil {
-		return ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
-	}
-
-	if _, err := c.UserService.CreateUser(&user); err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-
-	return ctx.Status(http.StatusCreated).JSON(user)
 }
 
 // GetAllUsers godoc
@@ -78,8 +52,20 @@ func (c *UserController) GetAllUsers(ctx *fiber.Ctx) error {
 // @Security     BearerAuth
 func (c *UserController) GetUserByID(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
+
+	if err := uuid.Validate(id); err != nil {
+		return ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid user ID format",
+		})
+	}
+
 	user, err := c.UserService.GetUserByID(id)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(http.StatusNotFound).JSON(fiber.Map{
+				"error": "user not found",
+			})
+		}
 		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -126,6 +112,17 @@ func (c *UserController) GetUserByEmail(ctx *fiber.Ctx) error {
 // @Security     BearerAuth
 func (c *UserController) DeleteUser(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
+
+	if err := uuid.Validate(id); err != nil {
+		return ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid user ID format",
+		})
+	}
+	if _, err := c.UserService.GetUserByID(id); err != nil {
+		return ctx.Status(http.StatusNotFound).JSON(fiber.Map{
+			"error": "user not found",
+		})
+	}
 	if err := c.UserService.DeleteUser(id); err != nil {
 		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),

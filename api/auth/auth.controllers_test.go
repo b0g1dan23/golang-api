@@ -160,6 +160,124 @@ func TestAuthController_Login(t *testing.T) {
 	})
 }
 
+func TestAuthController_RegisterUser(t *testing.T) {
+	app := setupTestApp(t)
+
+	t.Run("Success", func(t *testing.T) {
+		newUser := map[string]interface{}{
+			"email":     "newuser@example.com",
+			"password":  "SecurePass123!",
+			"firstname": "John",
+			"lastname":  "Doe",
+		}
+		body, err := json.Marshal(newUser)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+
+		assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		// Check response body
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Equal(t, "newuser@example.com", response["email"])
+		assert.Equal(t, "John", response["firstname"])
+		assert.Equal(t, "Doe", response["lastname"])
+		assert.NotContains(t, response, "password", "Password should not be returned")
+
+		// Check cookies are set
+		cookies := resp.Cookies()
+		var hasAuthToken, hasRefreshToken bool
+		for _, cookie := range cookies {
+			if cookie.Name == "__Secure-auth_token" {
+				hasAuthToken = true
+			}
+			if cookie.Name == "__Host-refresh_token" {
+				hasRefreshToken = true
+			}
+		}
+		assert.True(t, hasAuthToken, "Auth token cookie should be set")
+		assert.True(t, hasRefreshToken, "Refresh token cookie should be set")
+	})
+
+	t.Run("Invalid request body", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader([]byte("invalid json")))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Equal(t, "Invalid request body", response["error"])
+	})
+
+	t.Run("Duplicate email", func(t *testing.T) {
+		duplicateUser := map[string]interface{}{
+			"email":     validTestUserEmail, // Already exists from setupTestApp
+			"password":  "AnotherPass123!",
+			"firstname": "Jane",
+			"lastname":  "Doe",
+		}
+		body, err := json.Marshal(duplicateUser)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response["error"], "duplicate", "Should indicate duplicate email")
+	})
+
+	t.Run("Missing required fields", func(t *testing.T) {
+		incompleteUser := map[string]interface{}{
+			"email": "incomplete@example.com",
+			// Missing password, firstname, lastname
+		}
+		body, err := json.Marshal(incompleteUser)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	})
+
+	t.Run("Invalid email format", func(t *testing.T) {
+		invalidEmailUser := map[string]interface{}{
+			"email":     "not-an-email",
+			"password":  "SecurePass123!",
+			"firstname": "John",
+			"lastname":  "Doe",
+		}
+		body, err := json.Marshal(invalidEmailUser)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		// Should either be 400 or 500 depending on validation
+		assert.True(t, resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusInternalServerError)
+	})
+}
+
 func TestAuthController_Logout(t *testing.T) {
 	app := setupTestApp(t)
 

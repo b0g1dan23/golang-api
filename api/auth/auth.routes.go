@@ -12,6 +12,7 @@ func RegisterAuthRoutes(app *fiber.App) {
 	auth.Post("/login", controller.Login)
 	auth.Post("/logout", controller.Logout)
 	auth.Post("/refresh", controller.RefreshToken)
+	auth.Post("/register", controller.RegisterUser)
 
 	google_client_id := os.Getenv("GOOGLE_CLIENT_ID")
 	google_secret := os.Getenv("GOOGLE_CLIENT_SECRET")

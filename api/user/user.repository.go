@@ -26,9 +26,6 @@ func (r *UserRepository) Create(user *User) (*User, error) {
 func (r *UserRepository) FindByID(id string) (*User, error) {
 	var user User
 	if err := r.DB.First(&user, "id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("user with that ID not found")
-		}
 		return nil, err
 	}
 	return &user, nil

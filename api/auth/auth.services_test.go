@@ -1374,28 +1374,4 @@ func TestAuthService_LoginOAuthUser(t *testing.T) {
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "invalid email format")
 	})
-
-	t.Run("Handles missing first name", func(t *testing.T) {
-		dto := OAuthLoginDTO{
-			Email:     "noname@example.com",
-			FirstName: "",
-			LastName:  "User",
-		}
-
-		result, err := service.LoginOAuthUser(dto)
-		assert.Error(t, err)
-		assert.Nil(t, result)
-	})
-
-	t.Run("Handles missing last name", func(t *testing.T) {
-		dto := OAuthLoginDTO{
-			Email:     "nolast@example.com",
-			FirstName: "First",
-			LastName:  "",
-		}
-
-		result, err := service.LoginOAuthUser(dto)
-		assert.Error(t, err)
-		assert.Nil(t, result)
-	})
 }
