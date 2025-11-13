@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"testing"
+	"time"
 
 	database "boge.dev/golang-api/db"
 	"boge.dev/golang-api/utils/testutils"
@@ -176,7 +177,7 @@ func TestAuthController_RegisterUser(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := app.Test(req)
+		resp, err := app.Test(req, int(5*time.Second.Milliseconds()))
 		assert.NoError(t, err)
 
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -209,7 +210,7 @@ func TestAuthController_RegisterUser(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader([]byte("invalid json")))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := app.Test(req)
+		resp, err := app.Test(req, int(5*time.Second.Milliseconds()))
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
@@ -232,7 +233,7 @@ func TestAuthController_RegisterUser(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := app.Test(req)
+		resp, err := app.Test(req, int(5*time.Second.Milliseconds()))
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 
@@ -253,7 +254,7 @@ func TestAuthController_RegisterUser(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := app.Test(req)
+		resp, err := app.Test(req, int(5*time.Second.Milliseconds()))
 		assert.NoError(t, err)
 		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	})
@@ -271,7 +272,7 @@ func TestAuthController_RegisterUser(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/register", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := app.Test(req)
+		resp, err := app.Test(req, int(5*time.Second.Milliseconds()))
 		assert.NoError(t, err)
 		// Should either be 400 or 500 depending on validation
 		assert.True(t, resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusInternalServerError)
