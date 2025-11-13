@@ -222,7 +222,7 @@ func (s *AuthService) Logout(refreshToken string) error {
 	expVal, _ := claims.GetExpirationTime()
 	var ttl time.Duration
 
-	if expVal == nil || expVal.Time.IsZero() {
+	if expVal == nil || expVal.IsZero() {
 		ttl = 24 * time.Hour
 	} else {
 		ttl = time.Until(expVal.Time)
@@ -265,7 +265,7 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 
 	var ttl time.Duration
 	expVal, _ := claims.GetExpirationTime()
-	if expVal != nil && !expVal.Time.IsZero() {
+	if expVal != nil && !expVal.IsZero() {
 		ttl = time.Until(expVal.Time)
 		if ttl < 0 {
 			ttl = 0
