@@ -13,6 +13,15 @@ import (
 func RequireRoles(allowedRoles ...string) fiber.Handler {
 	jwtSecret := os.Getenv("JWT_SECRET")
 
+	if jwtSecret == "" {
+		// Return an error handler that always fails
+		return func(ctx *fiber.Ctx) error {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Server configuration error",
+			})
+		}
+	}
+
 	return func(ctx *fiber.Ctx) error {
 		authHeader := ctx.Get("Authorization")
 		var tokenString string

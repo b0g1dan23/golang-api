@@ -95,8 +95,9 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.Status(http.StatusOK).JSON(fiber.Map{
-		"user":         loginRes.User,
-		"access_token": loginRes.AuthToken,
+		"user":          loginRes.User,
+		"access_token":  loginRes.AuthToken,
+		"refresh_token": loginRes.RefreshToken,
 	})
 }
 
@@ -107,7 +108,6 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 		var refreshBody LogoutRequest
 
 		if err := ctx.BodyParser(&refreshBody); err != nil {
-			ctx.ClearCookie("__Host-refresh_token", "__Secure-auth_token")
 			return ctx.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "No refresh token found",
 			})
@@ -169,7 +169,9 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 	})
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-		"user": loginRes.User,
+		"user":          loginRes.User,
+		"access_token":  loginRes.AuthToken,
+		"refresh_token": loginRes.RefreshToken,
 	})
 }
 
@@ -262,6 +264,8 @@ func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 	})
 
 	return ctx.Status(fiber.StatusOK).JSON(fiber.Map{
-		"user": loginRes.User,
+		"user":          loginRes.User,
+		"access_token":  loginRes.AuthToken,
+		"refresh_token": loginRes.RefreshToken,
 	})
 }
