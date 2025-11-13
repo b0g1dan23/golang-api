@@ -70,7 +70,7 @@ func RequireRoles(allowedRoles ...string) fiber.Handler {
 		userRole := claims.Role
 		hasRole := false
 		for _, role := range allowedRoles {
-			if string(userRole) == role {
+			if userRole == role {
 				hasRole = true
 				break
 			}

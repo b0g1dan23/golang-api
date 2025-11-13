@@ -273,7 +273,7 @@ func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 	state := ctx.Query("state")
 	if state == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
-			Error: "Missing OAuth state parameter",
+			Error: "missing OAuth state parameter",
 		})
 	}
 
@@ -355,7 +355,7 @@ func (c *AuthController) RegisterUser(ctx *fiber.Ctx) error {
 		Role:      user.RoleUser,
 	}
 
-	// Save original password for login (CreateUser will hash it)
+	// Save original password before CreateUser hashes it, needed for automatic login after registration
 	originalPassword := registerData.Password
 
 	createdUser, err := c.AuthService.UserService.CreateUser(&newUser)
@@ -373,7 +373,7 @@ func (c *AuthController) RegisterUser(ctx *fiber.Ctx) error {
 	})
 	if err != nil {
 		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
-			Error: fmt.Sprintf("Failed to generate tokens: %v", err),
+			Error: fmt.Sprintf("failed to generate tokens: %v", err),
 		})
 	}
 
