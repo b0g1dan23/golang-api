@@ -355,7 +355,7 @@ func (c *AuthController) RegisterUser(ctx *fiber.Ctx) error {
 		Role:      user.RoleUser,
 	}
 
-	// Save original password for login (CreateUser will hash it)
+	// Save original password before CreateUser hashes it, needed for automatic login after registration
 	originalPassword := registerData.Password
 
 	createdUser, err := c.AuthService.UserService.CreateUser(&newUser)
