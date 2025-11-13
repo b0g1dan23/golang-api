@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"boge.dev/golang-api/api/user"
 	database "boge.dev/golang-api/db"
 	"boge.dev/golang-api/utils/testutils"
 	"github.com/golang-jwt/jwt/v5"
@@ -336,7 +337,7 @@ func TestAuthService_Logout(t *testing.T) {
 	t.Run("Successfully logout with valid refresh token", func(t *testing.T) {
 		jwtTokenData := JWTData{
 			ID:    "123",
-			Role:  "user",
+			Role:  user.RoleUser,
 			Email: testEmail,
 			JTI:   uuid.New().String(),
 		}
@@ -363,7 +364,7 @@ func TestAuthService_Logout(t *testing.T) {
 	t.Run("Logout with token without JTI claim", func(t *testing.T) {
 		jwtTokenData := JWTData{
 			ID:    "456",
-			Role:  "user",
+			Role:  user.RoleUser,
 			Email: testEmail,
 			JTI:   "",
 		}
@@ -389,7 +390,7 @@ func TestAuthService_Logout(t *testing.T) {
 		jti := uuid.New().String()
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"id":    "789",
-			"role":  "user",
+			"role":  user.RoleUser,
 			"email": testEmail,
 			"jti":   jti,
 			// No exp claim
@@ -412,7 +413,7 @@ func TestAuthService_Logout(t *testing.T) {
 	t.Run("Logout with already expired token", func(t *testing.T) {
 		jwtTokenData := JWTData{
 			ID:    "999",
-			Role:  "user",
+			Role:  user.RoleUser,
 			Email: testEmail,
 			JTI:   uuid.New().String(),
 		}
@@ -434,7 +435,7 @@ func TestAuthService_Logout(t *testing.T) {
 	t.Run("Logout same token twice (idempotency)", func(t *testing.T) {
 		jwtTokenData := JWTData{
 			ID:    "1001",
-			Role:  "user",
+			Role:  user.RoleUser,
 			Email: testEmail,
 			JTI:   uuid.New().String(),
 		}
@@ -464,7 +465,7 @@ func TestAuthService_Logout(t *testing.T) {
 				jti := uuid.New().String()
 				token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 					"id":    "test",
-					"role":  "user",
+					"role":  user.RoleUser,
 					"email": testEmail,
 					"jti":   jti,
 					"exp":   tc.expType,
@@ -489,7 +490,7 @@ func TestAuthService_Logout(t *testing.T) {
 		jti := uuid.New().String()
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"id":    "test",
-			"role":  "user",
+			"role":  user.RoleUser,
 			"email": testEmail,
 			"jti":   jti,
 			"exp":   "not-a-number",
@@ -513,7 +514,7 @@ func TestAuthService_Logout(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			jwtTokenData := JWTData{
 				ID:    fmt.Sprintf("user-%d", i),
-				Role:  "user",
+				Role:  user.RoleUser,
 				Email: fmt.Sprintf("user%d@test.com", i),
 				JTI:   uuid.New().String(),
 			}
@@ -685,7 +686,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   sharedTestUser.ID,
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"exp":   time.Now().Add(1 * time.Hour).Unix(),
 			// No jti claim
 		})
@@ -703,7 +704,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   sharedTestUser.ID,
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   "", // Empty JTI
 			"exp":   time.Now().Add(1 * time.Hour).Unix(),
 		})
@@ -721,7 +722,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   sharedTestUser.ID,
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   12345, // Non-string JTI
 			"exp":   time.Now().Add(1 * time.Hour).Unix(),
 		})
@@ -739,7 +740,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		jti := uuid.New().String()
 		jwtTokenData := JWTData{
 			ID:    "456",
-			Role:  "user",
+			Role:  user.RoleUser,
 			Email: testEmail,
 			JTI:   jti,
 		}
@@ -812,7 +813,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   sharedTestUser.ID,
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   jti,
 			// No exp claim
 		})
@@ -878,7 +879,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   "test",
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   uuid.New().String(),
 			"exp":   "not-a-number", // Invalid type
 		})
@@ -897,7 +898,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   "test",
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   jti,
 			"exp":   time.Now().Add(-1 * time.Hour).Unix(),
 		})
@@ -1122,7 +1123,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   sharedTestUser.ID,
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   jti,
 			"exp":   expTime.Unix(),
 		})
@@ -1158,7 +1159,7 @@ func TestMapGoogleUserToUser(t *testing.T) {
 		assert.Equal(t, "John", result.FirstName)
 		assert.Equal(t, "Doe", result.LastName)
 		assert.Equal(t, "john.doe@example.com", result.Email)
-		assert.Equal(t, "user", result.Role)
+		assert.Equal(t, user.RoleUser, result.Role)
 		assert.Empty(t, result.Password)
 		assert.Empty(t, result.ID)
 	})
@@ -1202,7 +1203,7 @@ func TestMapGoogleUserToUser(t *testing.T) {
 		assert.Empty(t, result.FirstName)
 		assert.Empty(t, result.LastName)
 		assert.Equal(t, "minimal@example.com", result.Email)
-		assert.Equal(t, "user", result.Role)
+		assert.Equal(t, user.RoleUser, result.Role)
 	})
 
 	t.Run("Empty user info", func(t *testing.T) {
@@ -1214,7 +1215,7 @@ func TestMapGoogleUserToUser(t *testing.T) {
 		assert.Empty(t, result.FirstName)
 		assert.Empty(t, result.LastName)
 		assert.Empty(t, result.Email)
-		assert.Equal(t, "user", result.Role)
+		assert.Equal(t, user.RoleUser, result.Role)
 	})
 
 	t.Run("User info with extra fields", func(t *testing.T) {
@@ -1351,7 +1352,7 @@ func TestAuthService_LoginOAuthUser(t *testing.T) {
 		assert.Equal(t, dto.Email, result.User.Email)
 		assert.Equal(t, dto.FirstName, result.User.FirstName)
 		assert.Equal(t, dto.LastName, result.User.LastName)
-		assert.Equal(t, "user", result.User.Role)
+		assert.Equal(t, user.RoleUser, result.User.Role)
 	})
 
 	t.Run("Returns existing user and generates tokens", func(t *testing.T) {

@@ -6,11 +6,12 @@ import (
 	"strings"
 
 	"boge.dev/golang-api/api/auth"
+	"boge.dev/golang-api/api/user"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func RequireRoles(allowedRoles ...string) fiber.Handler {
+func RequireRoles(allowedRoles ...user.Role) fiber.Handler {
 	jwtSecret := os.Getenv("JWT_SECRET")
 
 	if jwtSecret == "" {

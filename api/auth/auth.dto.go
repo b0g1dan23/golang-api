@@ -22,10 +22,10 @@ type OAuthLoginDTO struct {
 }
 
 type JWTData struct {
-	ID    string `json:"sub"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
-	JTI   string `json:"jti,omitempty"`
+	ID    string    `json:"sub"`
+	Email string    `json:"email"`
+	Role  user.Role `json:"role"`
+	JTI   string    `json:"jti,omitempty"`
 
 	jwt.RegisteredClaims
 }

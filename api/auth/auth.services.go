@@ -179,7 +179,7 @@ func (s *AuthService) LoginOAuthUser(dto OAuthLoginDTO) (*LoginResponse, error) 
 			FirstName: dto.FirstName,
 			LastName:  dto.LastName,
 			Email:     dto.Email,
-			Role:      "user",
+			Role:      user.RoleUser,
 			Password:  "", // No password for OAuth users
 		}
 
@@ -291,7 +291,8 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 	emailVal := claims["email"]
 	roleVal := claims["role"]
 
-	var userID, email, role string
+	var userID, email string
+	var role user.Role
 	var userData *user.User
 
 	// Extract sub (user ID)
@@ -308,7 +309,7 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 		email, _ = emailVal.(string)
 	}
 	if roleVal != nil {
-		role, _ = roleVal.(string)
+		role, _ = roleVal.(user.Role)
 	}
 
 	// Fetch user from database if we have a userID
@@ -388,7 +389,7 @@ func MapGoogleUserToUser(userInfo map[string]interface{}) (*user.User, error) {
 		FirstName: strings.TrimSpace(givenName),
 		LastName:  strings.TrimSpace(familyName),
 		Email:     strings.TrimSpace(email),
-		Role:      "user",
+		Role:      user.RoleUser,
 		Password:  "", // OAuth users have empty passwords and can only authenticate via OAuth
 	}, nil
 }
