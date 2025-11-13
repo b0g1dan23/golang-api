@@ -9,16 +9,17 @@ import (
 
 func RegisterAuthRoutes(app *fiber.App) {
 	controller := NewAuthController()
-	auth := app.Group("/api/auth")
-	auth.Post("/login", controller.Login)
-	auth.Post("/logout", middleware.RequireRoles("user"), controller.Logout)
-	auth.Post("/refresh", middleware.RequireRoles("user"), controller.RefreshToken)
-	auth.Post("/register", controller.RegisterUser)
-
-	google_client_id := os.Getenv("GOOGLE_CLIENT_ID")
-	google_secret := os.Getenv("GOOGLE_CLIENT_SECRET")
-	if google_client_id != "" && google_secret != "" {
-		auth.Get("/google/login", controller.GoogleLogin)
-		auth.Get("/google/callback", controller.GoogleCallback)
+	authGroup := app.Group("/api/auth")
+	authGroup.Post("/login", controller.Login)
+	googleClientId := os.Getenv("GOOGLE_CLIENT_ID")
+	googleSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	if googleClientId != "" && googleSecret != "" {
+		authGroup.Get("/google/login", controller.GoogleLogin)
+		authGroup.Get("/google/callback", controller.GoogleCallback)
 	}
+	authGroup.Post("/register", controller.RegisterUser)
+
+	protected := authGroup.Group("", middleware.RequireRoles("user"))
+	protected.Post("/logout", controller.Logout)
+	protected.Post("/refresh", controller.RefreshToken)
 }

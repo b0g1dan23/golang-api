@@ -7,9 +7,9 @@ import (
 
 func RegisterRoutes(app *fiber.App) {
 	controller := NewUserController()
-	users := app.Group("/api/users")
-	users.Get("/", middleware.RequireRoles("admin", "owner"), controller.GetAllUsers)
-	users.Get("/:id", middleware.RequireRoles("admin", "owner"), controller.GetUserByID)
-	users.Get("/email", middleware.RequireRoles("admin", "owner"), controller.GetUserByEmail)
-	users.Delete("/:id", middleware.RequireRoles("admin", "owner"), controller.DeleteUser)
+	users := app.Group("/api/users", middleware.RequireRoles("admin", "owner"))
+	users.Get("/", controller.GetAllUsers)
+	users.Get("/:id", controller.GetUserByID)
+	users.Get("/email", controller.GetUserByEmail)
+	users.Delete("/:id", controller.DeleteUser)
 }
