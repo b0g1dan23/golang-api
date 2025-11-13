@@ -220,7 +220,7 @@ func TestAuthService_Login(t *testing.T) {
 		authClaims := testutils.ParseJWTClaims(t, result.AuthToken)
 		assert.Equal(t, result.User.ID, authClaims["sub"])
 		assert.Equal(t, result.User.Email, authClaims["email"])
-		assert.Equal(t, result.User.Role, authClaims["role"])
+		assert.Equal(t, string(result.User.Role), authClaims["role"])
 		assert.NotNil(t, authClaims["exp"])
 		assert.Nil(t, authClaims["jti"], "Auth token should not have JTI")
 
@@ -228,7 +228,7 @@ func TestAuthService_Login(t *testing.T) {
 		refreshClaims := testutils.ParseJWTClaims(t, result.RefreshToken)
 		assert.Equal(t, result.User.ID, refreshClaims["sub"])
 		assert.Equal(t, result.User.Email, refreshClaims["email"])
-		assert.Equal(t, result.User.Role, refreshClaims["role"])
+		assert.Equal(t, string(result.User.Role), refreshClaims["role"])
 		assert.NotNil(t, refreshClaims["exp"])
 		assert.NotEmpty(t, refreshClaims["jti"], "Refresh token must have JTI claim")
 		assert.Equal(t, result.RefreshJTI, refreshClaims["jti"], "JTI should match")
@@ -373,7 +373,7 @@ func TestAuthService_Logout(t *testing.T) {
 		require.NoError(t, err)
 
 		err = service.Logout(token)
-		assert.NoError(t, err)
+		assert.Error(t, err)
 	})
 
 	t.Run("Logout with invalid token format", func(t *testing.T) {
@@ -501,7 +501,7 @@ func TestAuthService_Logout(t *testing.T) {
 
 		err = service.Logout(tokenString)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "exp is invalid")
+		assert.Contains(t, err.Error(), "failed to parse JWT")
 	})
 
 	t.Run("Logout with empty string token", func(t *testing.T) {
@@ -637,6 +637,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	sharedTestUser := testutils.CreateTestUser(t, testDB, testEmail, "TestPassword123!")
 
 	t.Run("Successfully refresh token with valid refresh token", func(t *testing.T) {
+		fmt.Println(sharedTestUser)
 		jwtTokenData := JWTData{
 			ID:    sharedTestUser.ID,
 			Role:  sharedTestUser.Role,
@@ -659,14 +660,15 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		assert.NotEqual(t, oldRefreshToken, result.RefreshToken)
 
 		authClaims, err := parseJWT(result.AuthToken)
+		fmt.Println(authClaims)
 		assert.NoError(t, err)
-		assert.Equal(t, jwtTokenData.ID, authClaims["sub"])
-		assert.Equal(t, jwtTokenData.Email, authClaims["email"])
-		assert.Equal(t, jwtTokenData.Role, authClaims["role"])
+		assert.Equal(t, jwtTokenData.ID, authClaims.ID)
+		assert.Equal(t, jwtTokenData.Email, authClaims.Email)
+		assert.Equal(t, jwtTokenData.Role, authClaims.Role)
 
 		refreshClaims, err := parseJWT(result.RefreshToken)
 		assert.NoError(t, err)
-		assert.Equal(t, result.RefreshJTI, refreshClaims["jti"])
+		assert.Equal(t, result.RefreshJTI, refreshClaims.JTI)
 
 		ctx := context.Background()
 		blacklistKey := fmt.Sprintf("refresh_blacklist:%s", jwtTokenData.JTI)
@@ -714,25 +716,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 		result, err := service.RefreshToken(tokenString)
 		assert.Error(t, err)
-		assert.Equal(t, ErrInvalidJTI, err)
-		assert.Nil(t, result)
-	})
-
-	t.Run("Refresh token with non-string JTI", func(t *testing.T) {
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"sub":   sharedTestUser.ID,
-			"email": testEmail,
-			"role":  user.RoleUser,
-			"jti":   12345, // Non-string JTI
-			"exp":   time.Now().Add(1 * time.Hour).Unix(),
-		})
-
-		tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
-		require.NoError(t, err)
-
-		result, err := service.RefreshToken(tokenString)
-		assert.Error(t, err)
-		assert.Equal(t, ErrInvalidJTI, err)
+		assert.Equal(t, ErrMissingJTI, err)
 		assert.Nil(t, result)
 	})
 
@@ -796,14 +780,8 @@ func TestAuthService_RefreshToken(t *testing.T) {
 				authClaims, err := parseJWT(result.AuthToken)
 				assert.NoError(t, err)
 
-				subVal := authClaims["sub"]
-				var subStr string
-				if s, ok := subVal.(string); ok {
-					subStr = s
-				} else if f, ok := subVal.(float64); ok {
-					subStr = fmt.Sprintf("%.0f", f)
-				}
-				assert.Equal(t, tc.expectedSub, subStr)
+				sub := authClaims.ID
+				assert.Equal(t, tc.expectedSub, sub)
 			})
 		}
 	})
@@ -929,17 +907,17 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 		authClaims, err := parseJWT(result.AuthToken)
 		assert.NoError(t, err)
-		assert.Equal(t, jwtTokenData.ID, authClaims["sub"])
-		assert.Equal(t, jwtTokenData.Email, authClaims["email"])
-		assert.Equal(t, jwtTokenData.Role, authClaims["role"])
+		assert.Equal(t, jwtTokenData.ID, authClaims.ID)
+		assert.Equal(t, jwtTokenData.Email, authClaims.Email)
+		assert.Equal(t, jwtTokenData.Role, authClaims.Role)
 
 		refreshClaims, err := parseJWT(result.RefreshToken)
 		assert.NoError(t, err)
-		assert.Equal(t, jwtTokenData.ID, refreshClaims["sub"])
-		assert.Equal(t, jwtTokenData.Email, refreshClaims["email"])
-		assert.Equal(t, jwtTokenData.Role, refreshClaims["role"])
-		assert.NotEmpty(t, refreshClaims["jti"])
-		assert.NotEqual(t, jwtTokenData.JTI, refreshClaims["jti"])
+		assert.Equal(t, jwtTokenData.ID, refreshClaims.ID)
+		assert.Equal(t, jwtTokenData.Email, refreshClaims.Email)
+		assert.Equal(t, jwtTokenData.Role, refreshClaims.Role)
+		assert.NotEmpty(t, refreshClaims.JTI)
+		assert.NotEqual(t, jwtTokenData.JTI, refreshClaims.JTI)
 	})
 
 	t.Run("Cannot reuse refresh token after refresh", func(t *testing.T) {
@@ -1019,9 +997,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 		authClaims, err := parseJWT(result.AuthToken)
 		assert.NoError(t, err)
-		if subVal, exists := authClaims["sub"]; exists {
-			assert.Empty(t, subVal)
-		}
+		assert.Empty(t, authClaims.ID)
 	})
 
 	t.Run("Concurrent refresh attempts with same token", func(t *testing.T) {

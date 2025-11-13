@@ -35,30 +35,30 @@ func NewAuthService() *AuthService {
 	}
 }
 
-func parseJWT(tokenString string) (map[string]interface{}, error) {
+func parseJWT(tokenString string) (*JWTData, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		return nil, errors.New("JWT_SECRET environment variable not set")
 	}
 
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &JWTData{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(secret), nil
 	})
 
-	if err != nil {
+	if err != nil || !token.Valid {
 		return nil, err
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok || !token.Valid {
+	claims, ok := token.Claims.(*JWTData)
+	if !ok {
 		return nil, ErrInvalidToken
 	}
 
-	if exp, ok := claims["exp"].(float64); ok {
-		if int64(exp) < time.Now().Unix() {
+	if exp, err := claims.GetExpirationTime(); err != nil {
+		if exp.Before(time.Now()) {
 			return nil, ErrTokenExpired
 		}
 	}
@@ -67,29 +67,17 @@ func parseJWT(tokenString string) (map[string]interface{}, error) {
 }
 
 func createJWTToken(data JWTData, duration time.Duration) (string, error) {
-	b, err := json.Marshal(data)
-	if err != nil {
-		return "", err
-	}
-	var claimsMap map[string]interface{}
-	if err := json.Unmarshal(b, &claimsMap); err != nil {
-		return "", err
-	}
-
-	now := time.Now().Unix()
-	if _, ok := claimsMap["exp"]; !ok {
-		claimsMap["exp"] = now + int64(duration.Seconds())
-	}
-	if _, ok := claimsMap["iat"]; !ok {
-		claimsMap["iat"] = now
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims(claimsMap))
-
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		return "", errors.New("JWT_SECRET environment variable not set")
 	}
+
+	now := time.Now()
+
+	data.IssuedAt = jwt.NewNumericDate(now)
+	data.ExpiresAt = jwt.NewNumericDate(now.Add(duration))
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, data)
 
 	signedToken, err := token.SignedString([]byte(secret))
 	if err != nil {
@@ -220,45 +208,36 @@ func (s *AuthService) LoginOAuthUser(dto OAuthLoginDTO) (*LoginResponse, error) 
 
 func (s *AuthService) Logout(refreshToken string) error {
 	ctx := context.Background()
+
 	claims, err := parseJWT(refreshToken)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse JWT: %w", err)
 	}
 
-	jtiVal, ok := claims["jti"]
-	if !ok {
-		return nil
-	}
-	jti, ok := jtiVal.(string)
-	if !ok || jti == "" {
-		return nil
+	jti := claims.JTI
+	if jti == "" {
+		return fmt.Errorf("missing jti in refresh token")
 	}
 
-	expVal, ok := claims["exp"]
-	if !ok {
-		return database.RDB.Client.Set(ctx, fmt.Sprintf("refresh_blacklist:%s", jti), "1", 24*time.Hour).Err()
-	}
+	expVal, _ := claims.GetExpirationTime()
+	var ttl time.Duration
 
-	var expUnix int64
-	switch v := expVal.(type) {
-	case float64:
-		expUnix = int64(v)
-	case int64:
-		expUnix = v
-	case json.Number:
-		n, _ := v.Int64()
-		expUnix = n
-	default:
-		return errors.New("invalid exp claim")
-	}
-
-	ttl := time.Until(time.Unix(expUnix, 0))
-	if ttl <= 0 {
-		return nil
+	if expVal == nil || expVal.IsZero() {
+		ttl = 24 * time.Hour
+	} else {
+		ttl = time.Until(expVal.Time)
+		if ttl <= 0 {
+			return nil
+		}
 	}
 
 	key := fmt.Sprintf("refresh_blacklist:%s", jti)
-	return database.RDB.Client.Set(ctx, key, "1", ttl).Err()
+	err = database.RDB.Client.Set(ctx, key, "1", ttl).Err()
+	if err != nil {
+		return fmt.Errorf("failed to set redis key: %w", err)
+	}
+
+	return nil
 }
 
 func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) {
@@ -268,13 +247,10 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 		return nil, ErrInvalidToken
 	}
 
-	jtiVal, ok := claims["jti"]
-	if !ok {
+	jti := claims.JTI
+
+	if jti == "" {
 		return nil, ErrMissingJTI
-	}
-	jti, ok := jtiVal.(string)
-	if !ok || jti == "" {
-		return nil, ErrInvalidJTI
 	}
 
 	blacklistKey := fmt.Sprintf("refresh_blacklist:%s", jti)
@@ -287,70 +263,32 @@ func (s *AuthService) RefreshToken(refreshToken string) (*LoginResponse, error) 
 		return nil, ErrTokenRevoked
 	}
 
-	subVal := claims["sub"]
-	emailVal := claims["email"]
-	roleVal := claims["role"]
-
-	var userID, email string
-	var role user.Role
-	var userData *user.User
-
-	// Extract sub (user ID)
-	if subVal != nil {
-		switch v := subVal.(type) {
-		case string:
-			userID = v
-		case float64:
-			userID = fmt.Sprintf("%.0f", v)
+	var ttl time.Duration
+	expVal, _ := claims.GetExpirationTime()
+	if expVal != nil && !expVal.IsZero() {
+		ttl = time.Until(expVal.Time)
+		if ttl < 0 {
+			ttl = 0
 		}
+	} else {
+		ttl = 24 * time.Hour
 	}
 
-	if emailVal != nil {
-		email, _ = emailVal.(string)
-	}
-	if roleVal != nil {
-		role, _ = roleVal.(user.Role)
+	if err = database.RDB.Client.Set(ctx, blacklistKey, "1", ttl).Err(); err != nil {
+		return nil, fmt.Errorf("failed to blacklist refresh token: %w", err)
 	}
 
-	// Fetch user from database if we have a userID
+	var userData *user.User
+	userID := claims.ID
 	if userID != "" {
-		var err error
 		userData, err = s.UserService.GetUserByID(userID)
 		if err != nil {
 			return nil, ErrUserNotFound
 		}
-	} else {
-		// If no userID, create a minimal user object from token claims
-		userData = &user.User{}
-		if email != "" {
-			userData.Email = email
-		}
-		if role != "" {
-			userData.Role = role
-		}
 	}
 
-	expVal, ok := claims["exp"]
-	if ok {
-		var expUnix int64
-		switch v := expVal.(type) {
-		case float64:
-			expUnix = int64(v)
-		case int64:
-			expUnix = v
-		case json.Number:
-			n, _ := v.Int64()
-			expUnix = n
-		default:
-			return nil, fmt.Errorf("%w: invalid exp claim", ErrInvalidToken)
-		}
-		ttl := time.Until(time.Unix(expUnix, 0))
-		if ttl > 0 {
-			if err = database.RDB.Client.Set(ctx, blacklistKey, "1", ttl).Err(); err != nil {
-				return nil, fmt.Errorf("failed to blacklist refresh token: %w", err)
-			}
-		}
-	}
+	email := claims.Email
+	role := claims.Role
 
 	authToken, err := createJWTToken(JWTData{
 		ID:    userID,

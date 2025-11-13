@@ -57,6 +57,18 @@ func setCookie(ctx *fiber.Ctx, data CookieData) {
 	ctx.Cookie(cookie)
 }
 
+// Login godoc
+// @Summary      User login
+// @Description  Authenticates user with email and password
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        login  body      LoginDTO  true  "Login credentials"
+// @Success      200    {object}  map[string]interface{} "user, access_token, refresh_token"
+// @Failure      400    {object}  map[string]string "Invalid request body"
+// @Failure      401    {object}  map[string]string "Invalid credentials"
+// @Failure      500    {object}  map[string]string "Internal server error"
+// @Router       /auth/login [post]
 func (c *AuthController) Login(ctx *fiber.Ctx) error {
 	var loginData LoginDTO
 	if err := ctx.BodyParser(&loginData); err != nil {
@@ -101,6 +113,18 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 	})
 }
 
+// Logout godoc
+// @Summary      User logout
+// @Description  Invalidates refresh token and clears auth cookies
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        refreshToken  body      LogoutRequest  false  "Refresh token (optional if cookie present)"
+// @Success      204           "Successfully logged out"
+// @Failure      400           {object}  map[string]string "No refresh token found"
+// @Failure      401           {object}  map[string]string "Invalid token"
+// @Router       /auth/logout [post]
+// @Security     BearerAuth
 func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 	refreshToken := ctx.Cookies("__Host-refresh_token")
 
@@ -134,6 +158,18 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 	return ctx.SendStatus(fiber.StatusNoContent)
 }
 
+// RefreshToken godoc
+// @Summary      Refresh access token
+// @Description  Generates new access and refresh tokens using a valid refresh token
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  map[string]interface{} "user, access_token, refresh_token"
+// @Failure      400  {object}  map[string]string "No refresh token cookie found"
+// @Failure      401  {object}  map[string]string "Token revoked or invalid"
+// @Failure      500  {object}  map[string]string "Failed to store refresh token"
+// @Router       /auth/refresh [post]
+// @Security     BearerAuth
 func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 	oldToken := ctx.Cookies("__Host-refresh_token")
 	if oldToken == "" {
@@ -175,6 +211,14 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 	})
 }
 
+// GoogleLogin godoc
+// @Summary      Initiate Google OAuth login
+// @Description  Redirects user to Google OAuth consent screen
+// @Tags         auth
+// @Produce      json
+// @Success      302  "Redirects to Google OAuth"
+// @Failure      500  {object}  map[string]string "Failed to generate OAuth state"
+// @Router       /auth/google/login [get]
 func (c *AuthController) GoogleLogin(ctx *fiber.Ctx) error {
 	state, err := generateOAuthState()
 	if err != nil {
@@ -198,6 +242,19 @@ func (c *AuthController) GoogleLogin(ctx *fiber.Ctx) error {
 	return ctx.Redirect(url)
 }
 
+// GoogleCallback godoc
+// @Summary      Google OAuth callback
+// @Description  Handles Google OAuth callback and authenticates user
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        state  query     string  true  "OAuth state parameter"
+// @Param        code   query     string  true  "OAuth authorization code"
+// @Success      200    {object}  map[string]interface{} "user, access_token, refresh_token"
+// @Failure      400    {object}  map[string]string "Missing OAuth state parameter or authorization code"
+// @Failure      401    {object}  map[string]string "Invalid or expired OAuth state"
+// @Failure      500    {object}  map[string]string "Internal server error"
+// @Router       /auth/google/callback [get]
 func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 	state := ctx.Query("state")
 	if state == "" {

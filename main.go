@@ -7,11 +7,22 @@ import (
 	"boge.dev/golang-api/api/auth"
 	"boge.dev/golang-api/api/user"
 	database "boge.dev/golang-api/db"
+	_ "boge.dev/golang-api/docs"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/swagger"
 )
 
+// @title My SaaS API
+// @version 1.0
+// @description API documentation for my SaaS boilerplate
+// @host localhost:8080
+// @BasePath /api
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token.
 func main() {
 	database.ConnectDB()
 	database.InitializeRedis()
@@ -29,6 +40,7 @@ func main() {
 	}))
 	app.Use(cors.New())
 
+	app.Get("/swagger/*", swagger.HandlerDefault)
 	user.RegisterRoutes(app)
 	auth.RegisterAuthRoutes(app)
 
