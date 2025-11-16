@@ -10,12 +10,12 @@ var (
 	ErrUserNotFound       = errors.New("user not found")
 	ErrTokenExpired       = errors.New("token has expired")
 	ErrMissingJTI         = errors.New("missing token identifier (jti)")
-	ErrInvalidJTI         = errors.New("invalid token identifier (jti)")
 	ErrTokenRevoked       = errors.New("token has been revoked")
 	ErrInvalidToken       = errors.New("invalid token")
-	ErrDatabaseError      = errors.New("database error")
 	ErrPasswordTooWeak    = errors.New("password does not meet security requirements")
 
 	ErrAccountLocked     = errors.New("account temporarily locked due to too many failed attempts")
 	ErrRateLimitExceeded = errors.New("rate limit exceeded, please try again later")
+
+	ErrPasswordMismatch = errors.New("passwords do not match")
 )

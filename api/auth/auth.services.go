@@ -16,6 +16,7 @@ import (
 	database "boge.dev/golang-api/db"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
@@ -376,4 +377,39 @@ func (s *AuthService) ExchangeCodeAndGetUser(code string, oauthConfig *oauth2.Co
 	}
 
 	return s.UserService.CreateUser(user)
+}
+
+func (s *AuthService) GenerateForgotPWUuid(email string) (*user.User, string, error) {
+	userData, err := s.UserService.GetUserByEmail(email)
+	if err != nil {
+		return nil, "", err
+	}
+
+	forgotPWUuid := uuid.New().String()
+	if err = database.RDB.Client.Set(context.Background(), fmt.Sprintf("forgot_pw:%s", forgotPWUuid), userData.ID, constants.ForgotPWTokenTTL).Err(); err != nil {
+		return nil, "", fmt.Errorf("failed to set forgot password token in redis: %w", err)
+	}
+
+	return userData, forgotPWUuid, nil
+}
+
+func (s *AuthService) ResetPassword(resetData ResetPasswordDTO) error {
+	if resetData.NewPasswordConfirm != resetData.NewPassword {
+		return ErrPasswordMismatch
+	}
+
+	res, err := database.RDB.Client.Get(context.Background(), fmt.Sprintf("forgot_pw:%s", resetData.Token)).Result()
+
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return ErrInvalidToken
+		}
+		return fmt.Errorf("failed to get forgot password token from redis: %w", err)
+	}
+
+	if _, err := s.UserService.ChangePassword(resetData.NewPassword, res); err != nil {
+		return fmt.Errorf("failed to change password: %w", err)
+	}
+
+	return nil
 }

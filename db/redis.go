@@ -36,10 +36,3 @@ func InitializeRedis() {
 		log.Println("Connected to Redis")
 	})
 }
-
-func GetRedis() *redis.Client {
-	if RDB == nil || RDB.Client == nil {
-		log.Fatal("Redis is not initialized, please call InitializeRedis() first")
-	}
-	return RDB.Client
-}
