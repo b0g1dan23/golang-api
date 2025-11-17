@@ -108,8 +108,7 @@ func TestCreateJWTToken(t *testing.T) {
 		assert.NoError(t, err, "Token creation should succeed even with zero duration")
 		assert.NotEmpty(t, token)
 
-		claims, err := testutils.ParseJWTClaimsAllowExpired(t, token)
-		require.NoError(t, err, "Should be able to parse expired token")
+		claims := testutils.ParseJWTClaims(t, token, true)
 
 		exp, expOk := claims["exp"].(float64)
 		iat, iatOk := claims["iat"].(float64)

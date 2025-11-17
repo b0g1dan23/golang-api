@@ -13,58 +13,17 @@ import (
 
 	database "boge.dev/golang-api/db"
 	"boge.dev/golang-api/utils/testutils"
-	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
 )
 
-const (
-	validTestUserEmail    = "test@example.com"
-	validTestUserPassword = "Password123*"
-)
-
-func setupTestApp(t *testing.T) *fiber.App {
-	t.Helper()
-
-	// Setup test configuration
-	testutils.SetupTestConfig(t)
-
-	// Setup test database
-	testDB := testutils.SetupTestDB(t)
-	database.DB.DB = testDB
-
-	// Setup Fiber app
-	app := fiber.New()
-	RegisterAuthRoutes(app)
-
-	mr := testutils.SetupTestRedis(t)
-
-	// Create test user
-	testutils.CreateTestUser(t, testDB, validTestUserEmail, validTestUserPassword)
-
-	// Cleanup
-	t.Cleanup(func() {
-		testutils.CleanupTestDB(t, testDB)
-		sqlDB, err := testDB.DB()
-		if err != nil {
-			t.Fatalf("Warning: Failed to get DB: %v", err)
-		}
-		err = sqlDB.Close()
-		if err != nil {
-			t.Logf("Warning: Failed to close test database: %v", err)
-		}
-		mr.Close()
-	})
-
-	return app
-}
-
 func TestAuthController_Login(t *testing.T) {
-	app := setupTestApp(t)
+	app := testutils.SetupTestApp(t)
+	RegisterAuthRoutes(app)
 
 	t.Run("Success", func(t *testing.T) {
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		body, err := json.Marshal(loginData)
 		if err != nil {
@@ -100,7 +59,7 @@ func TestAuthController_Login(t *testing.T) {
 
 	t.Run("Invalid Credentials", func(t *testing.T) {
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
+			Email:    testutils.ValidTestUserEmail,
 			Password: "Password321*",
 		}
 		body, err := json.Marshal(loginData)
@@ -162,7 +121,8 @@ func TestAuthController_Login(t *testing.T) {
 }
 
 func TestAuthController_RegisterUser(t *testing.T) {
-	app := setupTestApp(t)
+	app := testutils.SetupTestApp(t)
+	RegisterAuthRoutes(app)
 
 	t.Run("Success", func(t *testing.T) {
 		newUser := map[string]interface{}{
@@ -222,7 +182,7 @@ func TestAuthController_RegisterUser(t *testing.T) {
 
 	t.Run("Duplicate email", func(t *testing.T) {
 		duplicateUser := map[string]interface{}{
-			"email":     validTestUserEmail, // Already exists from setupTestApp
+			"email":     testutils.ValidTestUserEmail, // Already exists from testutils.SetupTestApp()
 			"password":  "AnotherPass123!",
 			"firstname": "Jane",
 			"lastname":  "Doe",
@@ -280,12 +240,13 @@ func TestAuthController_RegisterUser(t *testing.T) {
 }
 
 func TestAuthController_Logout(t *testing.T) {
-	app := setupTestApp(t)
+	app := testutils.SetupTestApp(t)
+	RegisterAuthRoutes(app)
 
 	t.Run("Success with cookie", func(t *testing.T) {
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		body, err := json.Marshal(loginData)
 		if err != nil {
@@ -328,8 +289,8 @@ func TestAuthController_Logout(t *testing.T) {
 
 	t.Run("Success with request body (mobile)", func(t *testing.T) {
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		body, err := json.Marshal(loginData)
 		if err != nil {
@@ -387,8 +348,8 @@ func TestAuthController_Logout(t *testing.T) {
 	t.Run("Empty refresh token in body", func(t *testing.T) {
 		// First login to get auth token
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		loginBody, _ := json.Marshal(loginData)
 		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
@@ -426,8 +387,8 @@ func TestAuthController_Logout(t *testing.T) {
 	t.Run("Invalid JSON body", func(t *testing.T) {
 		// First login to get auth token
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		loginBody, _ := json.Marshal(loginData)
 		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
@@ -459,8 +420,8 @@ func TestAuthController_Logout(t *testing.T) {
 	t.Run("Invalid refresh token", func(t *testing.T) {
 		// First login to get auth token
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		loginBody, _ := json.Marshal(loginData)
 		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
@@ -492,8 +453,8 @@ func TestAuthController_Logout(t *testing.T) {
 
 	t.Run("Clears cookies on successful logout", func(t *testing.T) {
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		body, err := json.Marshal(loginData)
 		if err != nil {
@@ -564,12 +525,13 @@ func TestAuthController_Logout(t *testing.T) {
 }
 
 func TestAuthController_RefreshToken(t *testing.T) {
-	app := setupTestApp(t)
+	app := testutils.SetupTestApp(t)
+	RegisterAuthRoutes(app)
 
 	t.Run("Success", func(t *testing.T) {
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		body, err := json.Marshal(loginData)
 		if err != nil {
@@ -651,8 +613,8 @@ func TestAuthController_RefreshToken(t *testing.T) {
 	t.Run("Valid auth but no refresh token", func(t *testing.T) {
 		// First login to get auth token
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		loginBody, _ := json.Marshal(loginData)
 		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
@@ -686,8 +648,8 @@ func TestAuthController_RefreshToken(t *testing.T) {
 	t.Run("Valid auth but invalid refresh token", func(t *testing.T) {
 		// First login to get auth token
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		loginBody, _ := json.Marshal(loginData)
 		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
@@ -720,8 +682,8 @@ func TestAuthController_RefreshToken(t *testing.T) {
 	t.Run("Mobile - Bearer token auth", func(t *testing.T) {
 		// Login to get tokens
 		loginData := LoginDTO{
-			Email:    validTestUserEmail,
-			Password: validTestUserPassword,
+			Email:    testutils.ValidTestUserEmail,
+			Password: testutils.ValidTestUserPassword,
 		}
 		loginBody, _ := json.Marshal(loginData)
 		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
@@ -753,7 +715,8 @@ func TestAuthController_RefreshToken(t *testing.T) {
 }
 
 func TestAuthController_GoogleLogin(t *testing.T) {
-	app := setupTestApp(t)
+	app := testutils.SetupTestApp(t)
+	RegisterAuthRoutes(app)
 	google_client_id := os.Getenv("GOOGLE_CLIENT_ID")
 	google_secret := os.Getenv("GOOGLE_CLIENT_SECRET")
 
@@ -862,7 +825,8 @@ func TestAuthController_GoogleLogin(t *testing.T) {
 }
 
 func TestAuthController_GoogleCallback(t *testing.T) {
-	app := setupTestApp(t)
+	app := testutils.SetupTestApp(t)
+	RegisterAuthRoutes(app)
 	google_client_id := os.Getenv("GOOGLE_CLIENT_ID")
 	google_secret := os.Getenv("GOOGLE_CLIENT_SECRET")
 
@@ -893,7 +857,7 @@ func TestAuthController_GoogleCallback(t *testing.T) {
 		var response map[string]interface{}
 		err = json.NewDecoder(resp.Body).Decode(&response)
 		assert.NoError(t, err)
-		assert.Contains(t, response["error"], "Missing OAuth state parameter")
+		assert.Contains(t, response["error"], "missing OAuth state parameter")
 	})
 
 	t.Run("Returns error on invalid state", func(t *testing.T) {

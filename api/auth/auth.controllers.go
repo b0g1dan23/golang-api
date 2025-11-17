@@ -265,9 +265,9 @@ func (c *AuthController) GoogleLogin(ctx *fiber.Ctx) error {
 // @Param        state  query     string  true  "OAuth state parameter"
 // @Param        code   query     string  true  "OAuth authorization code"
 // @Success      200    {object}  map[string]interface{} "user, access_token, refresh_token"
-// @Failure      400    {object}  api.ErrorResponse "Missing OAuth state parameter or authorization code"
-// @Failure      401    {object}  api.ErrorResponse "Invalid or expired OAuth state"
-// @Failure      500    {object}  api.ErrorResponse "Internal server error"
+// @Failure      400    {object}  api.ErrorResponse "Missing state or code"
+// @Failure      401    {object}  api.ErrorResponse "Invalid OAuth state"
+// @Failure      500    {object}  api.ErrorResponse "Failed to exchange code or store token"
 // @Router       /auth/google/callback [get]
 func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 	state := ctx.Query("state")
@@ -298,8 +298,8 @@ func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 
 	user, err := c.AuthService.ExchangeCodeAndGetUser(code, googleOAuthConfig)
 	if err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "failed to exchange authorization code",
 		})
 	}
 
@@ -307,15 +307,14 @@ func (c *AuthController) GoogleCallback(ctx *fiber.Ctx) error {
 		Email: user.Email,
 	})
 	if err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": err.Error(),
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "failed to authenticate OAuth user",
 		})
 	}
 
-	err = saveUserInCookie(ctx, loginRes)
-	if err != nil {
+	if err := saveUserInCookie(ctx, loginRes); err != nil {
 		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
-			Error: err.Error(),
+			Error: "failed to save session",
 		})
 	}
 
@@ -385,4 +384,95 @@ func (c *AuthController) RegisterUser(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.Status(http.StatusCreated).JSON(createdUser)
+}
+
+// ForgotPassword godoc
+// @Summary      Request password reset
+// @Description  Sends a password reset email if account exists. Always returns success to prevent user enumeration.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        email  body      ForgotPasswordDTO  true  "User email"
+// @Success      200    {object}  map[string]string "message: If account exists, reset email has been sent"
+// @Failure      400    {object}  api.ErrorResponse "Invalid request body"
+// @Failure      500    {object}  api.ErrorResponse "Internal server error"
+// @Router       /auth/forgot-password [post]
+func (c *AuthController) ForgotPassword(ctx *fiber.Ctx) error {
+	var forgotPasswordBody ForgotPasswordDTO
+
+	if err := ctx.BodyParser(&forgotPasswordBody); err != nil {
+		return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "invalid request body",
+		})
+	}
+
+	userData, token, err := c.AuthService.GenerateForgotPWUuid(forgotPasswordBody.Email)
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return ctx.Status(http.StatusOK).JSON(fiber.Map{
+				"message": "If an account with that email exists, a password reset link has been sent",
+			})
+		}
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "failed to process password reset request",
+		})
+	}
+
+	if err := c.AuthService.SendResetPasswordEmail(userData.FirstName, userData.Email, token); err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: err.Error(),
+		})
+	}
+
+	return ctx.Status(http.StatusOK).JSON(fiber.Map{
+		"message": "If an account with that email exists, a password reset link has been sent",
+	})
+}
+
+// ResetPassword godoc
+// @Summary      Reset user password
+// @Description  Resets password using valid token from email
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        reset  body      ResetPasswordDTO  true  "Reset token and new password"
+// @Success      200    {object}  map[string]string "message: Password reset successfully"
+// @Failure      400    {object}  api.ErrorResponse "Invalid request body or weak password"
+// @Failure      401    {object}  api.ErrorResponse "Invalid or expired token"
+// @Failure      500    {object}  api.ErrorResponse "Internal server error"
+// @Router       /auth/reset-password [post]
+func (c *AuthController) ResetPassword(ctx *fiber.Ctx) error {
+	var resetData ResetPasswordDTO
+
+	if err := ctx.BodyParser(&resetData); err != nil {
+		return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "invalid request body",
+		})
+	}
+
+	if err := c.AuthService.ResetPassword(resetData); err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidToken):
+			return ctx.Status(http.StatusUnauthorized).JSON(api.ErrorResponse{
+				Error: "invalid or expired reset token",
+			})
+		case errors.Is(err, ErrUserNotFound):
+			// Don't reveal that user doesn't exist - return same error as invalid token
+			return ctx.Status(http.StatusUnauthorized).JSON(api.ErrorResponse{
+				Error: "invalid or expired reset token",
+			})
+		case errors.Is(err, ErrPasswordTooWeak):
+			return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
+				Error: "password does not meet security requirements",
+			})
+		default:
+			return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+				Error: "failed to reset password",
+			})
+		}
+	}
+
+	return ctx.Status(http.StatusOK).JSON(fiber.Map{
+		"message": "Password reset successfully",
+	})
 }

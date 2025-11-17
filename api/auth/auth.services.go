@@ -1,21 +1,26 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"boge.dev/golang-api/api/user"
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
+	"boge.dev/golang-api/utils/email"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
@@ -376,4 +381,90 @@ func (s *AuthService) ExchangeCodeAndGetUser(code string, oauthConfig *oauth2.Co
 	}
 
 	return s.UserService.CreateUser(user)
+}
+
+func (s *AuthService) GenerateForgotPWUuid(email string) (*user.User, string, error) {
+	userData, err := s.UserService.GetUserByEmail(email)
+	if err != nil {
+		return nil, "", err
+	}
+
+	forgotPWUuid := uuid.New().String()
+	if err = database.RDB.Client.Set(context.Background(), fmt.Sprintf("forgot_pw:%s", forgotPWUuid), userData.ID, constants.ForgotPWTokenTTL).Err(); err != nil {
+		return nil, "", fmt.Errorf("failed to set forgot password token in redis: %w", err)
+	}
+
+	return userData, forgotPWUuid, nil
+}
+
+func (s *AuthService) ResetPassword(resetData ResetPasswordDTO) error {
+	res, err := database.RDB.Client.Get(context.Background(), fmt.Sprintf("forgot_pw:%s", resetData.Token)).Result()
+
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return ErrInvalidToken
+		}
+		return fmt.Errorf("failed to get forgot password token from redis: %w", err)
+	}
+
+	if _, err := s.UserService.ChangePassword(resetData.NewPassword, res); err != nil {
+		return fmt.Errorf("failed to change password: %w", err)
+	}
+
+	if err := database.RDB.Client.Del(context.Background(), fmt.Sprintf("forgot_pw:%s", resetData.Token)).Err(); err != nil {
+		return fmt.Errorf("failed to delete reset token from redis: %w", err)
+	}
+
+	return nil
+}
+
+func (s *AuthService) SendResetPasswordEmail(userFirstname, userEmail, token string) error {
+	wd, _ := os.Getwd()
+	resetPWTemplate := filepath.Join(wd, "go_templates", "emails", "reset_password.gohtml")
+	tmpl, err := template.ParseFiles(resetPWTemplate)
+	if err != nil {
+		log.Println("Failed to parse email template:", err)
+		return fmt.Errorf("internal server error")
+	}
+
+	appUrl := os.Getenv("APP_URL")
+	appName := os.Getenv("APP_NAME")
+	if appUrl == "" || appName == "" {
+		log.Println("APP_URL or APP_NAME environment variable not set")
+		return fmt.Errorf("internal server error")
+	}
+
+	tmplData := struct {
+		Name    string
+		BaseURL string
+		Token   string
+		AppName string
+	}{
+		Name:    userFirstname,
+		BaseURL: appUrl,
+		Token:   token,
+		AppName: appName,
+	}
+
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, tmplData); err != nil {
+		log.Println("Failed to execute email template: ", err)
+		return fmt.Errorf("internal server error")
+	}
+
+	es := email.NewEmailService()
+	if es == nil {
+		log.Println("Email service not configured")
+		return fmt.Errorf("internal server error")
+	}
+	if err := es.SendEmail(
+		[]string{userEmail},
+		"Password Reset Request",
+		body.String(),
+	); err != nil {
+		log.Println("Failed to send reset password email:", err)
+		return fmt.Errorf("internal server error")
+	}
+
+	return nil
 }
