@@ -1,12 +1,15 @@
 package auth
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"html/template"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"boge.dev/golang-api/api"
@@ -389,15 +392,14 @@ func (c *AuthController) RegisterUser(ctx *fiber.Ctx) error {
 
 // ForgotPassword godoc
 // @Summary      Request password reset
-// @Description  Sends a password reset email with a secure token
+// @Description  Sends a password reset email if account exists. Always returns success to prevent user enumeration.
 // @Tags         auth
 // @Accept       json
 // @Produce      json
 // @Param        email  body      ForgotPasswordDTO  true  "User email"
-// @Success      200    {object}  map[string]string "message: Successfully sent email"
+// @Success      200    {object}  map[string]string "message: If account exists, reset email has been sent"
 // @Failure      400    {object}  api.ErrorResponse "Invalid request body"
-// @Failure      404    {object}  api.ErrorResponse "User not found"
-// @Failure      500    {object}  api.ErrorResponse "Failed to send email"
+// @Failure      500    {object}  api.ErrorResponse "Internal server error"
 // @Router       /auth/forgot-password [post]
 func (c *AuthController) ForgotPassword(ctx *fiber.Ctx) error {
 	var forgotPasswordBody ForgotPasswordDTO
@@ -411,24 +413,69 @@ func (c *AuthController) ForgotPassword(ctx *fiber.Ctx) error {
 	userData, token, err := c.AuthService.GenerateForgotPWUuid(forgotPasswordBody.Email)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
-			return ctx.Status(http.StatusNotFound).JSON(api.ErrorResponse{
-				Error: "user not found",
+			return ctx.Status(http.StatusOK).JSON(fiber.Map{
+				"message": "If an account with that email exists, a password reset link has been sent",
 			})
 		}
 		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
-			Error: "failed to generate password reset token",
+			Error: "failed to process password reset request",
+		})
+	}
+
+	wd, _ := os.Getwd()
+	resetPWTemplate := filepath.Join(wd, "go_templates", "emails", "reset_password.gohtml")
+	tmpl, err := template.ParseFiles(resetPWTemplate)
+	if err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "internal server error",
+		})
+	}
+
+	appUrl := os.Getenv("APP_URL")
+	appName := os.Getenv("APP_NAME")
+	if appUrl == "" || appName == "" {
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "internal server error",
+		})
+	}
+
+	tmplData := struct {
+		Name    string
+		BaseURL string
+		Token   string
+		AppName string
+	}{
+		Name:    userData.FirstName,
+		BaseURL: appUrl,
+		Token:   token,
+		AppName: appName,
+	}
+
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, tmplData); err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "internal server error",
 		})
 	}
 
 	es := email.NewEmailService()
-	if err := es.SendEmail([]string{userData.Email}, "Don't worry, we got you!", fmt.Sprintf(constants.ForgotPWHTMLBody, userData.FirstName, os.Getenv("APP_URL"), token)); err != nil {
+	if es == nil {
 		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
-			Error: "failed to send email: " + err.Error(),
+			Error: "internal server error",
+		})
+	}
+	if err := es.SendEmail(
+		[]string{userData.Email},
+		"Password Reset Request",
+		body.String(),
+	); err != nil {
+		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "failed to send email",
 		})
 	}
 
 	return ctx.Status(http.StatusOK).JSON(fiber.Map{
-		"message": "Successfully sent email",
+		"message": "If an account with that email exists, a password reset link has been sent",
 	})
 }
 
@@ -442,7 +489,6 @@ func (c *AuthController) ForgotPassword(ctx *fiber.Ctx) error {
 // @Success      200    {object}  map[string]string "message: Password reset successfully"
 // @Failure      400    {object}  api.ErrorResponse "Invalid request body or weak password"
 // @Failure      401    {object}  api.ErrorResponse "Invalid or expired token"
-// @Failure      404    {object}  api.ErrorResponse "User not found"
 // @Failure      500    {object}  api.ErrorResponse "Internal server error"
 // @Router       /auth/reset-password [post]
 func (c *AuthController) ResetPassword(ctx *fiber.Ctx) error {
@@ -461,12 +507,13 @@ func (c *AuthController) ResetPassword(ctx *fiber.Ctx) error {
 				Error: "invalid or expired reset token",
 			})
 		case errors.Is(err, ErrUserNotFound):
-			return ctx.Status(http.StatusNotFound).JSON(api.ErrorResponse{
-				Error: "user not found",
+			// Don't reveal that user doesn't exist - return same error as invalid token
+			return ctx.Status(http.StatusUnauthorized).JSON(api.ErrorResponse{
+				Error: "invalid or expired reset token",
 			})
 		case errors.Is(err, ErrPasswordTooWeak):
 			return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
-				Error: "password is too weak",
+				Error: "password does not meet security requirements",
 			})
 		default:
 			return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{

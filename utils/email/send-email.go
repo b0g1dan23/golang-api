@@ -1,7 +1,6 @@
 package email
 
 import (
-	"log"
 	"os"
 
 	"github.com/resend/resend-go/v2"
@@ -15,12 +14,17 @@ type EmailService struct {
 func NewEmailService() *EmailService {
 	apiKey := os.Getenv("RESEND_API_KEY")
 	if apiKey == "" {
-		log.Fatalln("RESEND_API_KEY environment variable is not set")
+		return nil
 	}
-	client := resend.NewClient(apiKey)
 
+	emailFrom := os.Getenv("EMAIL_FROM")
+	if emailFrom == "" {
+		return nil
+	}
+
+	client := resend.NewClient(apiKey)
 	return &EmailService{
-		from:   os.Getenv("EMAIL_FROM"),
+		from:   emailFrom,
 		client: client,
 	}
 }

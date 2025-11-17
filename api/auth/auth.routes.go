@@ -12,6 +12,7 @@ func RegisterAuthRoutes(app *fiber.App) {
 	authGroup := app.Group("/api/auth")
 	authGroup.Post("/login", controller.Login)
 	authGroup.Post("/forgot-password", controller.ForgotPassword)
+	authGroup.Post("/reset-password", controller.ResetPassword)
 	googleClientId := os.Getenv("GOOGLE_CLIENT_ID")
 	googleSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 	if googleClientId != "" && googleSecret != "" {

@@ -394,10 +394,6 @@ func (s *AuthService) GenerateForgotPWUuid(email string) (*user.User, string, er
 }
 
 func (s *AuthService) ResetPassword(resetData ResetPasswordDTO) error {
-	if resetData.NewPasswordConfirm != resetData.NewPassword {
-		return ErrPasswordMismatch
-	}
-
 	res, err := database.RDB.Client.Get(context.Background(), fmt.Sprintf("forgot_pw:%s", resetData.Token)).Result()
 
 	if err != nil {
@@ -409,6 +405,10 @@ func (s *AuthService) ResetPassword(resetData ResetPasswordDTO) error {
 
 	if _, err := s.UserService.ChangePassword(resetData.NewPassword, res); err != nil {
 		return fmt.Errorf("failed to change password: %w", err)
+	}
+
+	if err := database.RDB.Client.Del(context.Background(), fmt.Sprintf("forgot_pw:%s", resetData.Token)).Err(); err != nil {
+		return fmt.Errorf("failed to delete reset token from redis: %w", err)
 	}
 
 	return nil

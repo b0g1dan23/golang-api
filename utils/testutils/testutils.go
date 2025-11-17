@@ -327,6 +327,9 @@ func CreateTestUser(t *testing.T, db *gorm.DB, email, password string) *user.Use
 	return testUser
 }
 
+// SetupTestApp initializes and returns a new Fiber app configured for testing.
+// It sets up test configuration, database, Redis, and creates a test user.
+// Cleanup functions are registered to reset the database and close resources after the test.
 func SetupTestApp(t *testing.T) *fiber.App {
 	t.Helper()
 
@@ -350,7 +353,7 @@ func SetupTestApp(t *testing.T) *fiber.App {
 		CleanupTestDB(t, testDB)
 		sqlDB, err := testDB.DB()
 		if err != nil {
-			t.Fatalf("Warning: Failed to get DB: %v", err)
+			t.Logf("Warning: Failed to get DB: %v", err)
 		}
 		err = sqlDB.Close()
 		if err != nil {
