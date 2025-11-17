@@ -1,22 +1,18 @@
 package auth
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"html/template"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"boge.dev/golang-api/api"
 	user "boge.dev/golang-api/api/user"
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
-	"boge.dev/golang-api/utils/email"
 	"github.com/gofiber/fiber/v2"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -422,55 +418,9 @@ func (c *AuthController) ForgotPassword(ctx *fiber.Ctx) error {
 		})
 	}
 
-	wd, _ := os.Getwd()
-	resetPWTemplate := filepath.Join(wd, "go_templates", "emails", "reset_password.gohtml")
-	tmpl, err := template.ParseFiles(resetPWTemplate)
-	if err != nil {
+	if err := c.AuthService.SendResetPasswordEmail(userData.FirstName, userData.Email, token); err != nil {
 		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
-			Error: "internal server error",
-		})
-	}
-
-	appUrl := os.Getenv("APP_URL")
-	appName := os.Getenv("APP_NAME")
-	if appUrl == "" || appName == "" {
-		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
-			Error: "internal server error",
-		})
-	}
-
-	tmplData := struct {
-		Name    string
-		BaseURL string
-		Token   string
-		AppName string
-	}{
-		Name:    userData.FirstName,
-		BaseURL: appUrl,
-		Token:   token,
-		AppName: appName,
-	}
-
-	var body bytes.Buffer
-	if err := tmpl.Execute(&body, tmplData); err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
-			Error: "internal server error",
-		})
-	}
-
-	es := email.NewEmailService()
-	if es == nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
-			Error: "internal server error",
-		})
-	}
-	if err := es.SendEmail(
-		[]string{userData.Email},
-		"Password Reset Request",
-		body.String(),
-	); err != nil {
-		return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{
-			Error: "failed to send email",
+			Error: err.Error(),
 		})
 	}
 
