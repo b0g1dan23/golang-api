@@ -1,6 +1,7 @@
 package email
 
 import (
+	"log"
 	"os"
 
 	"github.com/resend/resend-go/v2"
@@ -18,11 +19,13 @@ type EmailSender interface {
 func NewEmailService() *EmailService {
 	apiKey := os.Getenv("RESEND_API_KEY")
 	if apiKey == "" {
+		log.Println("RESEND_API_KEY not set")
 		return nil
 	}
 
 	emailFrom := os.Getenv("EMAIL_FROM")
 	if emailFrom == "" {
+		log.Println("EMAIL_FROM not set")
 		return nil
 	}
 

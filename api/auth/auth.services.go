@@ -10,14 +10,13 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"boge.dev/golang-api/api/user"
+	"boge.dev/golang-api/assets"
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
-	"boge.dev/golang-api/utils"
 	"boge.dev/golang-api/utils/email"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -78,10 +77,12 @@ func parseJWT(tokenString string) (*JWTData, error) {
 		return nil, ErrInvalidToken
 	}
 
-	if exp, err := claims.GetExpirationTime(); err != nil {
-		if exp.Before(time.Now()) {
-			return nil, ErrTokenExpired
-		}
+	exp, err := claims.GetExpirationTime()
+	if err != nil {
+		return nil, err
+	}
+	if exp.Before(time.Now()) {
+		return nil, ErrTokenExpired
 	}
 
 	return claims, nil
@@ -435,8 +436,7 @@ func (s *AuthService) ResetPassword(resetData ResetPasswordDTO) error {
 }
 
 func (s *AuthService) SendResetPasswordEmail(userFirstname, userEmail, token string) error {
-	resetPWTemplate := filepath.Join(utils.GetProjectRoot(), "go_templates", "emails", "reset_password.gohtml")
-	tmpl, err := template.ParseFiles(resetPWTemplate)
+	tmpl, err := template.ParseFS(assets.EmailTemplates, "emails/reset_password.gohtml")
 	if err != nil {
 		log.Println("Failed to parse email template:", err)
 		return fmt.Errorf("internal server error")
