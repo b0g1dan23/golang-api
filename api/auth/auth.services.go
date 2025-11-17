@@ -81,7 +81,7 @@ func parseJWT(tokenString string) (*JWTData, error) {
 	if err != nil {
 		return nil, err
 	}
-	if exp.Before(time.Now()) {
+	if exp != nil && exp.Before(time.Now()) {
 		return nil, ErrTokenExpired
 	}
 
@@ -436,7 +436,7 @@ func (s *AuthService) ResetPassword(resetData ResetPasswordDTO) error {
 }
 
 func (s *AuthService) SendResetPasswordEmail(userFirstname, userEmail, token string) error {
-	tmpl, err := template.ParseFS(assets.EmailTemplates, "emails/reset_password.gohtml")
+	tmpl, err := template.ParseFS(assets.EmailTemplates, "go_templates/emails/reset_password.gohtml")
 	if err != nil {
 		log.Println("Failed to parse email template:", err)
 		return fmt.Errorf("internal server error")
