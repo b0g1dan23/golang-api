@@ -17,6 +17,7 @@ import (
 	"boge.dev/golang-api/api/user"
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
+	"boge.dev/golang-api/utils"
 	"boge.dev/golang-api/utils/email"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -43,9 +44,11 @@ func NewAuthService(emailService ...email.EmailSender) *AuthService {
 		}
 	}
 
-	emailProvider := email.NewEmailService()
+	var emailProvider email.EmailSender
+	emailProvider = email.NewEmailService()
 	if emailProvider == nil {
 		log.Println("Warning: Email service not configured. Email functionalities will be disabled.")
+		emailProvider = email.NewMockEmailService()
 	}
 
 	return &AuthService{
@@ -435,13 +438,7 @@ func (s *AuthService) ResetPassword(resetData ResetPasswordDTO) error {
 }
 
 func (s *AuthService) SendResetPasswordEmail(userFirstname, userEmail, token string) error {
-	wd, _ := os.Getwd()
-	var resetPWTemplate string
-	if os.Getenv("GO_ENV") == "test" {
-		resetPWTemplate = filepath.Join(wd, "../", "../", "go_templates", "emails", "reset_password.gohtml")
-	} else {
-		resetPWTemplate = filepath.Join(wd, "go_templates", "emails", "reset_password.gohtml")
-	}
+	resetPWTemplate := filepath.Join(utils.GetProjectRoot(), "go_templates", "emails", "reset_password.gohtml")
 	tmpl, err := template.ParseFiles(resetPWTemplate)
 	if err != nil {
 		log.Println("Failed to parse email template:", err)

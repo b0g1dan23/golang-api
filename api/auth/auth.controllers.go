@@ -416,8 +416,7 @@ func (c *AuthController) ForgotPassword(ctx *fiber.Ctx) error {
 		})
 	}
 
-	forgotPasswordBody.Email = strings.TrimLeft(forgotPasswordBody.Email, " ")
-	forgotPasswordBody.Email = strings.TrimRight(forgotPasswordBody.Email, " ")
+	forgotPasswordBody.Email = strings.TrimSpace(forgotPasswordBody.Email)
 
 	if err := ValidateEmail(forgotPasswordBody.Email); err != nil {
 		return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
