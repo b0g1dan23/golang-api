@@ -35,27 +35,24 @@ type AuthService struct {
 }
 
 func NewAuthService(emailService ...email.EmailSender) *AuthService {
-	if len(emailService) != 0 {
-		return &AuthService{
-			DB:           database.DB.DB,
-			UserService:  user.NewUserService(),
-			RateLimiter:  NewRateLimiter(),
-			emailService: emailService[0],
-		}
-	}
-
 	var emailProvider email.EmailSender
-	emailProvider = email.NewEmailService()
-	if emailProvider == nil {
-		log.Println("Warning: Email service not configured. Email functionalities will be disabled.")
-		emailProvider = email.NewMockEmailService()
+
+	if len(emailService) != 0 {
+		emailProvider = emailService[0]
+	} else {
+		if os.Getenv("RESEND_API_KEY") == "" || os.Getenv("EMAIL_FROM") == "" {
+			log.Println("Warning: Email service not configured. Using mock email service.")
+			emailProvider = email.NewMockEmailService()
+		} else {
+			emailProvider = email.NewEmailService()
+		}
 	}
 
 	return &AuthService{
 		DB:           database.DB.DB,
 		UserService:  user.NewUserService(),
 		RateLimiter:  NewRateLimiter(),
-		emailService: email.NewEmailService(),
+		emailService: emailProvider,
 	}
 }
 
