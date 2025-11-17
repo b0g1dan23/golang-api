@@ -37,7 +37,7 @@ func main() {
 		LastName:  "Admin",
 		Email:     os.Getenv("ADMIN_EMAIL"),
 		Password:  string(password),
-		Role:      "admin",
+		Role:      user.RoleAdmin,
 	}
 
 	if err := db.DB.Create(&admin).Error; err != nil {

@@ -15,6 +15,7 @@ import (
 	database "boge.dev/golang-api/db"
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
@@ -27,13 +28,30 @@ import (
 var (
 	testConfigMutex = &sync.Mutex{}
 	originalEnv     map[string]string
+
+	ValidTestUserEmail    = "test@example.com"
+	ValidTestUserPassword = "Password123*"
 )
 
 func SetupTestConfig(t *testing.T) {
 	t.Helper()
 	testConfigMutex.Lock()
 
-	originalEnv = map[string]string{
+	originalEnv = captureEnvironmentVariables()
+
+	err := initializeTestEnvironment(t)
+	if err != nil {
+		t.Fatalf("Failed to initialize test environment: %v", err)
+	}
+
+	t.Cleanup(func() {
+		restoreEnvironmentVariables()
+		testConfigMutex.Unlock()
+	})
+}
+
+func captureEnvironmentVariables() map[string]string {
+	return map[string]string{
 		"JWT_SECRET":             os.Getenv("JWT_SECRET"),
 		"GO_ENV":                 os.Getenv("GO_ENV"),
 		"TEST_POSTGRES_HOST":     os.Getenv("TEST_POSTGRES_HOST"),
@@ -42,25 +60,28 @@ func SetupTestConfig(t *testing.T) {
 		"TEST_POSTGRES_DB":       os.Getenv("TEST_POSTGRES_DB"),
 		"TEST_POSTGRES_PORT":     os.Getenv("TEST_POSTGRES_PORT"),
 	}
+}
 
+func initializeTestEnvironment(t *testing.T) error {
 	jwtSecret, err := generateSecureTestSecret(t)
 	if err != nil {
-		t.Fatalf("Failed to generate secure test JWT secret: %v", err)
+		return fmt.Errorf("failed to generate JWT secret: %w", err)
 	}
 
 	_ = os.Setenv("JWT_SECRET", jwtSecret)
 	_ = os.Setenv("GO_ENV", "test")
 
-	t.Cleanup(func() {
-		for key, val := range originalEnv {
-			if val == "" {
-				_ = os.Unsetenv(key)
-			} else {
-				_ = os.Setenv(key, val)
-			}
+	return nil
+}
+
+func restoreEnvironmentVariables() {
+	for key, val := range originalEnv {
+		if val == "" {
+			_ = os.Unsetenv(key)
+		} else {
+			_ = os.Setenv(key, val)
 		}
-		testConfigMutex.Unlock()
-	})
+	}
 }
 
 func RestoreTestJWTSecret(t *testing.T) {
@@ -136,7 +157,7 @@ func SetupFailingDB(t *testing.T) *gorm.DB {
 	return gormDB
 }
 
-func ParseJWTClaims(t *testing.T, tokenString string) jwt.MapClaims {
+func ParseJWTClaims(t *testing.T, tokenString string, allowExpired ...bool) jwt.MapClaims {
 	t.Helper()
 
 	secret := os.Getenv("JWT_SECRET")
@@ -144,12 +165,23 @@ func ParseJWTClaims(t *testing.T, tokenString string) jwt.MapClaims {
 		t.Fatal("JWT_SECRET environment variable not set")
 	}
 
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(secret), nil
-	})
+	var token *jwt.Token
+	var err error
+	if len(allowExpired) != 0 && allowExpired[0] {
+		token, err = jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return []byte(secret), nil
+		}, jwt.WithoutClaimsValidation())
+	} else {
+		token, err = jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return []byte(secret), nil
+		})
+	}
 
 	if err != nil {
 		t.Fatalf("Failed to parse JWT token: %v", err)
@@ -165,33 +197,6 @@ func ParseJWTClaims(t *testing.T, tokenString string) jwt.MapClaims {
 	}
 
 	return claims
-}
-
-func ParseJWTClaimsAllowExpired(t *testing.T, tokenString string) (jwt.MapClaims, error) {
-	t.Helper()
-
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		return nil, fmt.Errorf("JWT_SECRET environment variable not set")
-	}
-
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(secret), nil
-	}, jwt.WithoutClaimsValidation())
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse JWT token: %w", err)
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, fmt.Errorf("failed to extract claims from JWT token")
-	}
-
-	return claims, nil
 }
 
 func SetupTestDB(t *testing.T) *gorm.DB {
@@ -311,7 +316,7 @@ func CreateTestUser(t *testing.T, db *gorm.DB, email, password string) *user.Use
 		Password:  string(hashedPassword),
 		FirstName: "Test",
 		LastName:  "User",
-		Role:      "user",
+		Role:      user.RoleUser,
 	}
 
 	result := db.Create(testUser)
@@ -320,4 +325,42 @@ func CreateTestUser(t *testing.T, db *gorm.DB, email, password string) *user.Use
 	}
 
 	return testUser
+}
+
+// SetupTestApp initializes and returns a new Fiber app configured for testing.
+// It sets up test configuration, database, Redis, and creates a test user.
+// Cleanup functions are registered to reset the database and close resources after the test.
+func SetupTestApp(t *testing.T) *fiber.App {
+	t.Helper()
+
+	// Setup test configuration
+	SetupTestConfig(t)
+
+	// Setup test database
+	testDB := SetupTestDB(t)
+	database.DB.DB = testDB
+
+	// Setup Fiber app
+	app := fiber.New()
+
+	mr := SetupTestRedis(t)
+
+	// Create test user
+	CreateTestUser(t, testDB, ValidTestUserEmail, ValidTestUserPassword)
+
+	// Cleanup
+	t.Cleanup(func() {
+		CleanupTestDB(t, testDB)
+		sqlDB, err := testDB.DB()
+		if err != nil {
+			t.Logf("Warning: Failed to get DB: %v", err)
+		}
+		err = sqlDB.Close()
+		if err != nil {
+			t.Logf("Warning: Failed to close test database: %v", err)
+		}
+		mr.Close()
+	})
+
+	return app
 }

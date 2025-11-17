@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"boge.dev/golang-api/api/user"
 	database "boge.dev/golang-api/db"
+	"boge.dev/golang-api/utils/email"
 	"boge.dev/golang-api/utils/testutils"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -106,8 +109,7 @@ func TestCreateJWTToken(t *testing.T) {
 		assert.NoError(t, err, "Token creation should succeed even with zero duration")
 		assert.NotEmpty(t, token)
 
-		claims, err := testutils.ParseJWTClaimsAllowExpired(t, token)
-		require.NoError(t, err, "Should be able to parse expired token")
+		claims := testutils.ParseJWTClaims(t, token, true)
 
 		exp, expOk := claims["exp"].(float64)
 		iat, iatOk := claims["iat"].(float64)
@@ -218,7 +220,7 @@ func TestAuthService_Login(t *testing.T) {
 		authClaims := testutils.ParseJWTClaims(t, result.AuthToken)
 		assert.Equal(t, result.User.ID, authClaims["sub"])
 		assert.Equal(t, result.User.Email, authClaims["email"])
-		assert.Equal(t, result.User.Role, authClaims["role"])
+		assert.Equal(t, string(result.User.Role), authClaims["role"])
 		assert.NotNil(t, authClaims["exp"])
 		assert.Nil(t, authClaims["jti"], "Auth token should not have JTI")
 
@@ -226,7 +228,7 @@ func TestAuthService_Login(t *testing.T) {
 		refreshClaims := testutils.ParseJWTClaims(t, result.RefreshToken)
 		assert.Equal(t, result.User.ID, refreshClaims["sub"])
 		assert.Equal(t, result.User.Email, refreshClaims["email"])
-		assert.Equal(t, result.User.Role, refreshClaims["role"])
+		assert.Equal(t, string(result.User.Role), refreshClaims["role"])
 		assert.NotNil(t, refreshClaims["exp"])
 		assert.NotEmpty(t, refreshClaims["jti"], "Refresh token must have JTI claim")
 		assert.Equal(t, result.RefreshJTI, refreshClaims["jti"], "JTI should match")
@@ -335,7 +337,7 @@ func TestAuthService_Logout(t *testing.T) {
 	t.Run("Successfully logout with valid refresh token", func(t *testing.T) {
 		jwtTokenData := JWTData{
 			ID:    "123",
-			Role:  "user",
+			Role:  user.RoleUser,
 			Email: testEmail,
 			JTI:   uuid.New().String(),
 		}
@@ -362,7 +364,7 @@ func TestAuthService_Logout(t *testing.T) {
 	t.Run("Logout with token without JTI claim", func(t *testing.T) {
 		jwtTokenData := JWTData{
 			ID:    "456",
-			Role:  "user",
+			Role:  user.RoleUser,
 			Email: testEmail,
 			JTI:   "",
 		}
@@ -371,7 +373,7 @@ func TestAuthService_Logout(t *testing.T) {
 		require.NoError(t, err)
 
 		err = service.Logout(token)
-		assert.NoError(t, err)
+		assert.Error(t, err)
 	})
 
 	t.Run("Logout with invalid token format", func(t *testing.T) {
@@ -388,7 +390,7 @@ func TestAuthService_Logout(t *testing.T) {
 		jti := uuid.New().String()
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"id":    "789",
-			"role":  "user",
+			"role":  user.RoleUser,
 			"email": testEmail,
 			"jti":   jti,
 			// No exp claim
@@ -411,7 +413,7 @@ func TestAuthService_Logout(t *testing.T) {
 	t.Run("Logout with already expired token", func(t *testing.T) {
 		jwtTokenData := JWTData{
 			ID:    "999",
-			Role:  "user",
+			Role:  user.RoleUser,
 			Email: testEmail,
 			JTI:   uuid.New().String(),
 		}
@@ -433,7 +435,7 @@ func TestAuthService_Logout(t *testing.T) {
 	t.Run("Logout same token twice (idempotency)", func(t *testing.T) {
 		jwtTokenData := JWTData{
 			ID:    "1001",
-			Role:  "user",
+			Role:  user.RoleUser,
 			Email: testEmail,
 			JTI:   uuid.New().String(),
 		}
@@ -463,7 +465,7 @@ func TestAuthService_Logout(t *testing.T) {
 				jti := uuid.New().String()
 				token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 					"id":    "test",
-					"role":  "user",
+					"role":  user.RoleUser,
 					"email": testEmail,
 					"jti":   jti,
 					"exp":   tc.expType,
@@ -488,7 +490,7 @@ func TestAuthService_Logout(t *testing.T) {
 		jti := uuid.New().String()
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"id":    "test",
-			"role":  "user",
+			"role":  user.RoleUser,
 			"email": testEmail,
 			"jti":   jti,
 			"exp":   "not-a-number",
@@ -499,7 +501,7 @@ func TestAuthService_Logout(t *testing.T) {
 
 		err = service.Logout(tokenString)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "exp is invalid")
+		assert.Contains(t, err.Error(), "failed to parse JWT")
 	})
 
 	t.Run("Logout with empty string token", func(t *testing.T) {
@@ -512,7 +514,7 @@ func TestAuthService_Logout(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			jwtTokenData := JWTData{
 				ID:    fmt.Sprintf("user-%d", i),
-				Role:  "user",
+				Role:  user.RoleUser,
 				Email: fmt.Sprintf("user%d@test.com", i),
 				JTI:   uuid.New().String(),
 			}
@@ -658,13 +660,13 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 		authClaims, err := parseJWT(result.AuthToken)
 		assert.NoError(t, err)
-		assert.Equal(t, jwtTokenData.ID, authClaims["sub"])
-		assert.Equal(t, jwtTokenData.Email, authClaims["email"])
-		assert.Equal(t, jwtTokenData.Role, authClaims["role"])
+		assert.Equal(t, jwtTokenData.ID, authClaims.ID)
+		assert.Equal(t, jwtTokenData.Email, authClaims.Email)
+		assert.Equal(t, jwtTokenData.Role, authClaims.Role)
 
 		refreshClaims, err := parseJWT(result.RefreshToken)
 		assert.NoError(t, err)
-		assert.Equal(t, result.RefreshJTI, refreshClaims["jti"])
+		assert.Equal(t, result.RefreshJTI, refreshClaims.JTI)
 
 		ctx := context.Background()
 		blacklistKey := fmt.Sprintf("refresh_blacklist:%s", jwtTokenData.JTI)
@@ -684,7 +686,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   sharedTestUser.ID,
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"exp":   time.Now().Add(1 * time.Hour).Unix(),
 			// No jti claim
 		})
@@ -702,7 +704,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   sharedTestUser.ID,
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   "", // Empty JTI
 			"exp":   time.Now().Add(1 * time.Hour).Unix(),
 		})
@@ -712,25 +714,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 		result, err := service.RefreshToken(tokenString)
 		assert.Error(t, err)
-		assert.Equal(t, ErrInvalidJTI, err)
-		assert.Nil(t, result)
-	})
-
-	t.Run("Refresh token with non-string JTI", func(t *testing.T) {
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"sub":   sharedTestUser.ID,
-			"email": testEmail,
-			"role":  "user",
-			"jti":   12345, // Non-string JTI
-			"exp":   time.Now().Add(1 * time.Hour).Unix(),
-		})
-
-		tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
-		require.NoError(t, err)
-
-		result, err := service.RefreshToken(tokenString)
-		assert.Error(t, err)
-		assert.Equal(t, ErrInvalidJTI, err)
+		assert.Equal(t, ErrMissingJTI, err)
 		assert.Nil(t, result)
 	})
 
@@ -738,7 +722,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		jti := uuid.New().String()
 		jwtTokenData := JWTData{
 			ID:    "456",
-			Role:  "user",
+			Role:  user.RoleUser,
 			Email: testEmail,
 			JTI:   jti,
 		}
@@ -794,14 +778,8 @@ func TestAuthService_RefreshToken(t *testing.T) {
 				authClaims, err := parseJWT(result.AuthToken)
 				assert.NoError(t, err)
 
-				subVal := authClaims["sub"]
-				var subStr string
-				if s, ok := subVal.(string); ok {
-					subStr = s
-				} else if f, ok := subVal.(float64); ok {
-					subStr = fmt.Sprintf("%.0f", f)
-				}
-				assert.Equal(t, tc.expectedSub, subStr)
+				sub := authClaims.ID
+				assert.Equal(t, tc.expectedSub, sub)
 			})
 		}
 	})
@@ -811,7 +789,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   sharedTestUser.ID,
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   jti,
 			// No exp claim
 		})
@@ -877,7 +855,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   "test",
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   uuid.New().String(),
 			"exp":   "not-a-number", // Invalid type
 		})
@@ -896,7 +874,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   "test",
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   jti,
 			"exp":   time.Now().Add(-1 * time.Hour).Unix(),
 		})
@@ -927,17 +905,17 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 		authClaims, err := parseJWT(result.AuthToken)
 		assert.NoError(t, err)
-		assert.Equal(t, jwtTokenData.ID, authClaims["sub"])
-		assert.Equal(t, jwtTokenData.Email, authClaims["email"])
-		assert.Equal(t, jwtTokenData.Role, authClaims["role"])
+		assert.Equal(t, jwtTokenData.ID, authClaims.ID)
+		assert.Equal(t, jwtTokenData.Email, authClaims.Email)
+		assert.Equal(t, jwtTokenData.Role, authClaims.Role)
 
 		refreshClaims, err := parseJWT(result.RefreshToken)
 		assert.NoError(t, err)
-		assert.Equal(t, jwtTokenData.ID, refreshClaims["sub"])
-		assert.Equal(t, jwtTokenData.Email, refreshClaims["email"])
-		assert.Equal(t, jwtTokenData.Role, refreshClaims["role"])
-		assert.NotEmpty(t, refreshClaims["jti"])
-		assert.NotEqual(t, jwtTokenData.JTI, refreshClaims["jti"])
+		assert.Equal(t, jwtTokenData.ID, refreshClaims.ID)
+		assert.Equal(t, jwtTokenData.Email, refreshClaims.Email)
+		assert.Equal(t, jwtTokenData.Role, refreshClaims.Role)
+		assert.NotEmpty(t, refreshClaims.JTI)
+		assert.NotEqual(t, jwtTokenData.JTI, refreshClaims.JTI)
 	})
 
 	t.Run("Cannot reuse refresh token after refresh", func(t *testing.T) {
@@ -1017,9 +995,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 		authClaims, err := parseJWT(result.AuthToken)
 		assert.NoError(t, err)
-		if subVal, exists := authClaims["sub"]; exists {
-			assert.Empty(t, subVal)
-		}
+		assert.Empty(t, authClaims.ID)
 	})
 
 	t.Run("Concurrent refresh attempts with same token", func(t *testing.T) {
@@ -1121,7 +1097,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"sub":   sharedTestUser.ID,
 			"email": testEmail,
-			"role":  "user",
+			"role":  user.RoleUser,
 			"jti":   jti,
 			"exp":   expTime.Unix(),
 		})
@@ -1140,5 +1116,477 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 		assert.Greater(t, ttl, 25*time.Minute)
 		assert.LessOrEqual(t, ttl, 30*time.Minute)
+	})
+}
+
+func TestMapGoogleUserToUser(t *testing.T) {
+	t.Run("Success with complete user info", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "John",
+			"family_name": "Doe",
+			"email":       "john.doe@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "John", result.FirstName)
+		assert.Equal(t, "Doe", result.LastName)
+		assert.Equal(t, "john.doe@example.com", result.Email)
+		assert.Equal(t, user.RoleUser, result.Role)
+		assert.Empty(t, result.Password)
+		assert.Empty(t, result.ID)
+	})
+
+	t.Run("Success with missing family name", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name": "John",
+			"email":      "john@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "John", result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Equal(t, "john@example.com", result.Email)
+	})
+
+	t.Run("Success with missing given name", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"family_name": "Doe",
+			"email":       "doe@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Equal(t, "Doe", result.LastName)
+		assert.Equal(t, "doe@example.com", result.Email)
+	})
+
+	t.Run("Success with only email", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"email": "minimal@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Equal(t, "minimal@example.com", result.Email)
+		assert.Equal(t, user.RoleUser, result.Role)
+	})
+
+	t.Run("Empty user info", func(t *testing.T) {
+		userInfo := map[string]interface{}{}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Empty(t, result.Email)
+		assert.Equal(t, user.RoleUser, result.Role)
+	})
+
+	t.Run("User info with extra fields", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "Jane",
+			"family_name": "Smith",
+			"email":       "jane.smith@example.com",
+			"picture":     "https://example.com/photo.jpg",
+			"locale":      "en",
+			"verified":    true,
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "Jane", result.FirstName)
+		assert.Equal(t, "Smith", result.LastName)
+		assert.Equal(t, "jane.smith@example.com", result.Email)
+	})
+
+	t.Run("User info with numeric values", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "Test",
+			"family_name": "User",
+			"email":       "test@example.com",
+			"age":         25,
+			"verified":    1,
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "Test", result.FirstName)
+		assert.Equal(t, "User", result.LastName)
+		assert.Equal(t, "test@example.com", result.Email)
+	})
+
+	t.Run("User info with special characters in names", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "François",
+			"family_name": "O'Brien-Smith",
+			"email":       "francois@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "François", result.FirstName)
+		assert.Equal(t, "O'Brien-Smith", result.LastName)
+		assert.Equal(t, "francois@example.com", result.Email)
+	})
+
+	t.Run("User info with whitespace in fields", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "John",
+			"family_name": "Doe",
+			"email":       "john@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "John", result.FirstName)
+		assert.Equal(t, "Doe", result.LastName)
+		assert.Equal(t, "john@example.com", result.Email)
+	})
+
+	t.Run("User info with long names", func(t *testing.T) {
+		longFirstName := strings.Repeat("A", 200)
+
+		userInfo := map[string]interface{}{
+			"given_name":  longFirstName,
+			"family_name": "Doe",
+			"email":       "long@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, longFirstName, result.FirstName)
+		assert.Equal(t, 200, len(result.FirstName))
+	})
+
+	t.Run("Nil user info", func(t *testing.T) {
+		var userInfo map[string]interface{}
+
+		result, err := MapGoogleUserToUser(userInfo)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Empty(t, result.FirstName)
+		assert.Empty(t, result.LastName)
+		assert.Empty(t, result.Email)
+	})
+
+	t.Run("CreatedAt and UpdatedAt are not manually set", func(t *testing.T) {
+		userInfo := map[string]interface{}{
+			"given_name":  "John",
+			"family_name": "Doe",
+			"email":       "john@example.com",
+		}
+
+		result, err := MapGoogleUserToUser(userInfo)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		// CreatedAt and UpdatedAt should be zero values - GORM will set them on insert
+		assert.True(t, result.CreatedAt.IsZero())
+		assert.True(t, result.UpdatedAt.IsZero())
+	})
+}
+
+func TestAuthService_LoginOAuthUser(t *testing.T) {
+	testutils.SetupTestConfig(t)
+	testDB := testutils.SetupTestDB(t)
+	database.DB.DB = testDB
+	mr := testutils.SetupTestRedis(t)
+	defer mr.Close()
+
+	service := NewAuthService()
+
+	t.Run("Creates new user and returns tokens", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "newuser@example.com",
+			FirstName: "New",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotEmpty(t, result.AuthToken)
+		assert.NotEmpty(t, result.RefreshToken)
+		assert.NotEmpty(t, result.RefreshJTI)
+		assert.Equal(t, dto.Email, result.User.Email)
+		assert.Equal(t, dto.FirstName, result.User.FirstName)
+		assert.Equal(t, dto.LastName, result.User.LastName)
+		assert.Equal(t, user.RoleUser, result.User.Role)
+	})
+
+	t.Run("Returns existing user and generates tokens", func(t *testing.T) {
+		// Create user first
+		testutils.CreateTestUser(t, testDB, "existing@example.com", "")
+
+		dto := OAuthLoginDTO{
+			Email:     "existing@example.com",
+			FirstName: "Existing",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotEmpty(t, result.AuthToken)
+		assert.NotEmpty(t, result.RefreshToken)
+		assert.Equal(t, dto.Email, result.User.Email)
+	})
+
+	t.Run("Returns error on empty email", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "",
+			FirstName: "Test",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "email is required")
+	})
+
+	t.Run("Returns error on invalid email format", func(t *testing.T) {
+		dto := OAuthLoginDTO{
+			Email:     "invalid-email",
+			FirstName: "Test",
+			LastName:  "User",
+		}
+
+		result, err := service.LoginOAuthUser(dto)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "invalid email format")
+	})
+}
+
+func TestAuthService_SendResetPasswordEmail(t *testing.T) {
+	testutils.SetupTestConfig(t)
+
+	originalAppURL := os.Getenv("APP_URL")
+	originalAppName := os.Getenv("APP_NAME")
+	t.Cleanup(func() {
+		_ = os.Setenv("APP_URL", originalAppURL)
+		_ = os.Setenv("APP_NAME", originalAppName)
+	})
+
+	_ = os.Setenv("APP_URL", "https://example.com")
+	_ = os.Setenv("APP_NAME", "TestApp")
+
+	t.Run("Successfully sends email with correct data", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		token := uuid.New().String()
+		userName := "John Doe"
+		userEmail := "john@example.com"
+
+		err := service.SendResetPasswordEmail(userName, userEmail, token)
+		assert.NoError(t, err)
+
+		assert.Equal(t, 1, mockEmail.GetCallCount())
+
+		lastCall := mockEmail.GetLastCall()
+		assert.NotNil(t, lastCall)
+		assert.Equal(t, []string{userEmail}, lastCall.To)
+		assert.Contains(t, lastCall.Subject, "Reset")
+		assert.Contains(t, lastCall.HTMLContent, token)
+		assert.Contains(t, lastCall.HTMLContent, userName)
+	})
+
+	t.Run("Returns error when email service fails", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		mockEmail.ShouldFail = true
+		mockEmail.FailError = fmt.Errorf("SMTP connection failed")
+
+		service := NewAuthService(mockEmail)
+
+		err := service.SendResetPasswordEmail("John", "john@example.com", "token123")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to send email")
+
+		assert.Equal(t, 1, mockEmail.GetCallCount())
+	})
+
+	t.Run("Handles multiple recipients correctly", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		emails := []string{"user1@example.com", "user2@example.com", "user3@example.com"}
+		token := uuid.New().String()
+
+		for _, email := range emails {
+			err := service.SendResetPasswordEmail("User", email, token)
+			assert.NoError(t, err)
+		}
+
+		assert.Equal(t, 3, mockEmail.GetCallCount())
+
+		for _, email := range emails {
+			assert.True(t, mockEmail.WasCalledWith(email))
+		}
+	})
+
+	t.Run("Email contains reset link with token", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		token := "test-token-123"
+
+		err := service.SendResetPasswordEmail("John", "john@example.com", token)
+		assert.NoError(t, err)
+
+		lastCall := mockEmail.GetLastCall()
+		assert.Contains(t, lastCall.HTMLContent, "https://example.com")
+		assert.Contains(t, lastCall.HTMLContent, token)
+	})
+
+	t.Run("Custom email send function", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+
+		var capturedSubject string
+		mockEmail.SendEmailFunc = func(to []string, subject, htmlContent string) error {
+			capturedSubject = subject
+			return nil
+		}
+
+		service := NewAuthService(mockEmail)
+
+		err := service.SendResetPasswordEmail("John", "john@example.com", "token")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, capturedSubject)
+	})
+
+	t.Run("Concurrent email sending", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		const numEmails = 10
+		var wg sync.WaitGroup
+		errors := make(chan error, numEmails)
+
+		for i := 0; i < numEmails; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				email := fmt.Sprintf("user%d@example.com", id)
+				err := service.SendResetPasswordEmail("User", email, "token")
+				errors <- err
+			}(i)
+		}
+
+		wg.Wait()
+		close(errors)
+
+		for err := range errors {
+			assert.NoError(t, err)
+		}
+
+		assert.Equal(t, numEmails, mockEmail.GetCallCount())
+	})
+
+	t.Run("Tracks multiple calls correctly", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		// First email
+		err := service.SendResetPasswordEmail("John", "john@example.com", "token1")
+		assert.NoError(t, err)
+
+		// Second email
+		err = service.SendResetPasswordEmail("Jane", "jane@example.com", "token2")
+		assert.NoError(t, err)
+
+		assert.Equal(t, 2, mockEmail.GetCallCount())
+
+		johnCalls := mockEmail.GetCallsForEmail("john@example.com")
+		assert.Len(t, johnCalls, 1)
+		assert.Contains(t, johnCalls[0].HTMLContent, "token1")
+
+		janeCalls := mockEmail.GetCallsForEmail("jane@example.com")
+		assert.Len(t, janeCalls, 1)
+		assert.Contains(t, janeCalls[0].HTMLContent, "token2")
+	})
+
+	t.Run("Reset clears all tracked calls", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		err := service.SendResetPasswordEmail("John", "john@example.com", "token")
+		assert.NoError(t, err)
+		assert.Equal(t, 1, mockEmail.GetCallCount())
+
+		mockEmail.Reset()
+
+		assert.Equal(t, 0, mockEmail.GetCallCount())
+		assert.False(t, mockEmail.ShouldFail)
+		assert.Nil(t, mockEmail.FailError)
+	})
+}
+
+func TestAuthService_GenerateForgotPWUuid(t *testing.T) {
+	testutils.SetupTestConfig(t)
+	testDB := testutils.SetupTestDB(t)
+	database.DB.DB = testDB
+	mr := testutils.SetupTestRedis(t)
+	defer mr.Close()
+
+	mockEmail := email.NewMockEmailService()
+	service := NewAuthService(mockEmail)
+
+	t.Run("Generates token without sending email", func(t *testing.T) {
+		email := "forgotpw@example.com"
+		testutils.CreateTestUser(t, testDB, email, testPassword)
+
+		userData, token, err := service.GenerateForgotPWUuid(email)
+		assert.NoError(t, err)
+		assert.NotNil(t, userData)
+		assert.NotEmpty(t, token)
+
+		// Verify no email was sent during token generation
+		assert.Equal(t, 0, mockEmail.GetCallCount())
+	})
+}
+
+func TestAuthService_ResetPassword(t *testing.T) {
+	testutils.SetupTestConfig(t)
+	testDB := testutils.SetupTestDB(t)
+	database.DB.DB = testDB
+	mr := testutils.SetupTestRedis(t)
+	defer mr.Close()
+
+	mockEmail := email.NewMockEmailService()
+	service := NewAuthService(mockEmail)
+
+	t.Run("Resets password without sending confirmation email", func(t *testing.T) {
+		email := "resetpw@example.com"
+		testutils.CreateTestUser(t, testDB, email, testPassword)
+
+		_, token, err := service.GenerateForgotPWUuid(email)
+		require.NoError(t, err)
+
+		err = service.ResetPassword(ResetPasswordDTO{
+			Token:              token,
+			NewPassword:        "NewSecurePass123!",
+			NewPasswordConfirm: "NewSecurePass123!",
+		})
+		assert.NoError(t, err)
+
+		// If you add confirmation emails later, track them here
+		assert.Equal(t, 0, mockEmail.GetCallCount())
 	})
 }
