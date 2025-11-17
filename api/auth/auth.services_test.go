@@ -12,6 +12,7 @@ import (
 
 	"boge.dev/golang-api/api/user"
 	database "boge.dev/golang-api/db"
+	"boge.dev/golang-api/utils/email"
 	"boge.dev/golang-api/utils/testutils"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -1370,5 +1371,220 @@ func TestAuthService_LoginOAuthUser(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "invalid email format")
+	})
+}
+
+func TestAuthService_SendResetPasswordEmail(t *testing.T) {
+	testutils.SetupTestConfig(t)
+
+	originalAppURL := os.Getenv("APP_URL")
+	originalAppName := os.Getenv("APP_NAME")
+	t.Cleanup(func() {
+		_ = os.Setenv("APP_URL", originalAppURL)
+		_ = os.Setenv("APP_NAME", originalAppName)
+	})
+
+	_ = os.Setenv("APP_URL", "https://example.com")
+	_ = os.Setenv("APP_NAME", "TestApp")
+
+	t.Run("Successfully sends email with correct data", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		token := uuid.New().String()
+		userName := "John Doe"
+		userEmail := "john@example.com"
+
+		err := service.SendResetPasswordEmail(userName, userEmail, token)
+		assert.NoError(t, err)
+
+		assert.Equal(t, 1, mockEmail.GetCallCount())
+
+		lastCall := mockEmail.GetLastCall()
+		assert.NotNil(t, lastCall)
+		assert.Equal(t, []string{userEmail}, lastCall.To)
+		assert.Contains(t, lastCall.Subject, "Reset")
+		assert.Contains(t, lastCall.HTMLContent, token)
+		assert.Contains(t, lastCall.HTMLContent, userName)
+	})
+
+	t.Run("Returns error when email service fails", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		mockEmail.ShouldFail = true
+		mockEmail.FailError = fmt.Errorf("SMTP connection failed")
+
+		service := NewAuthService(mockEmail)
+
+		err := service.SendResetPasswordEmail("John", "john@example.com", "token123")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to send email")
+
+		assert.Equal(t, 1, mockEmail.GetCallCount())
+	})
+
+	t.Run("Handles multiple recipients correctly", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		emails := []string{"user1@example.com", "user2@example.com", "user3@example.com"}
+		token := uuid.New().String()
+
+		for _, email := range emails {
+			err := service.SendResetPasswordEmail("User", email, token)
+			assert.NoError(t, err)
+		}
+
+		assert.Equal(t, 3, mockEmail.GetCallCount())
+
+		for _, email := range emails {
+			assert.True(t, mockEmail.WasCalledWith(email))
+		}
+	})
+
+	t.Run("Email contains reset link with token", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		token := "test-token-123"
+
+		err := service.SendResetPasswordEmail("John", "john@example.com", token)
+		assert.NoError(t, err)
+
+		lastCall := mockEmail.GetLastCall()
+		assert.Contains(t, lastCall.HTMLContent, "https://example.com")
+		assert.Contains(t, lastCall.HTMLContent, token)
+	})
+
+	t.Run("Custom email send function", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+
+		var capturedSubject string
+		mockEmail.SendEmailFunc = func(to []string, subject, htmlContent string) error {
+			capturedSubject = subject
+			return nil
+		}
+
+		service := NewAuthService(mockEmail)
+
+		err := service.SendResetPasswordEmail("John", "john@example.com", "token")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, capturedSubject)
+	})
+
+	t.Run("Concurrent email sending", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		const numEmails = 10
+		var wg sync.WaitGroup
+		errors := make(chan error, numEmails)
+
+		for i := 0; i < numEmails; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				email := fmt.Sprintf("user%d@example.com", id)
+				err := service.SendResetPasswordEmail("User", email, "token")
+				errors <- err
+			}(i)
+		}
+
+		wg.Wait()
+		close(errors)
+
+		for err := range errors {
+			assert.NoError(t, err)
+		}
+
+		assert.Equal(t, numEmails, mockEmail.GetCallCount())
+	})
+
+	t.Run("Tracks multiple calls correctly", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		// First email
+		err := service.SendResetPasswordEmail("John", "john@example.com", "token1")
+		assert.NoError(t, err)
+
+		// Second email
+		err = service.SendResetPasswordEmail("Jane", "jane@example.com", "token2")
+		assert.NoError(t, err)
+
+		assert.Equal(t, 2, mockEmail.GetCallCount())
+
+		johnCalls := mockEmail.GetCallsForEmail("john@example.com")
+		assert.Len(t, johnCalls, 1)
+		assert.Contains(t, johnCalls[0].HTMLContent, "token1")
+
+		janeCalls := mockEmail.GetCallsForEmail("jane@example.com")
+		assert.Len(t, janeCalls, 1)
+		assert.Contains(t, janeCalls[0].HTMLContent, "token2")
+	})
+
+	t.Run("Reset clears all tracked calls", func(t *testing.T) {
+		mockEmail := email.NewMockEmailService()
+		service := NewAuthService(mockEmail)
+
+		service.SendResetPasswordEmail("John", "john@example.com", "token")
+		assert.Equal(t, 1, mockEmail.GetCallCount())
+
+		mockEmail.Reset()
+
+		assert.Equal(t, 0, mockEmail.GetCallCount())
+		assert.False(t, mockEmail.ShouldFail)
+		assert.Nil(t, mockEmail.FailError)
+	})
+}
+
+func TestAuthService_GenerateForgotPWUuid(t *testing.T) {
+	testutils.SetupTestConfig(t)
+	testDB := testutils.SetupTestDB(t)
+	database.DB.DB = testDB
+	mr := testutils.SetupTestRedis(t)
+	defer mr.Close()
+
+	mockEmail := email.NewMockEmailService()
+	service := NewAuthService(mockEmail)
+
+	t.Run("Generates token without sending email", func(t *testing.T) {
+		email := "forgotpw@example.com"
+		testutils.CreateTestUser(t, testDB, email, testPassword)
+
+		userData, token, err := service.GenerateForgotPWUuid(email)
+		assert.NoError(t, err)
+		assert.NotNil(t, userData)
+		assert.NotEmpty(t, token)
+
+		// Verify no email was sent during token generation
+		assert.Equal(t, 0, mockEmail.GetCallCount())
+	})
+}
+
+func TestAuthService_ResetPassword(t *testing.T) {
+	testutils.SetupTestConfig(t)
+	testDB := testutils.SetupTestDB(t)
+	database.DB.DB = testDB
+	mr := testutils.SetupTestRedis(t)
+	defer mr.Close()
+
+	mockEmail := email.NewMockEmailService()
+	service := NewAuthService(mockEmail)
+
+	t.Run("Resets password without sending confirmation email", func(t *testing.T) {
+		email := "resetpw@example.com"
+		testutils.CreateTestUser(t, testDB, email, testPassword)
+
+		_, token, err := service.GenerateForgotPWUuid(email)
+		require.NoError(t, err)
+
+		err = service.ResetPassword(ResetPasswordDTO{
+			Token:       token,
+			NewPassword: "NewSecurePass123!",
+		})
+		assert.NoError(t, err)
+
+		// If you add confirmation emails later, track them here
+		assert.Equal(t, 0, mockEmail.GetCallCount())
 	})
 }

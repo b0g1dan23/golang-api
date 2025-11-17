@@ -50,7 +50,7 @@ type CookieData struct {
 }
 
 type ForgotPasswordDTO struct {
-	Email string `json:"email" binding:"required,email"`
+	Email string `json:"email" validate:"required,email" binding:"required,email"`
 }
 
 type ResetPasswordDTO struct {
