@@ -11,6 +11,10 @@ type EmailService struct {
 	client *resend.Client
 }
 
+type EmailSender interface {
+	SendEmail(to []string, subject, htmlContent string) error
+}
+
 func NewEmailService() *EmailService {
 	apiKey := os.Getenv("RESEND_API_KEY")
 	if apiKey == "" {

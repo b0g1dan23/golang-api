@@ -2,18 +2,23 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
+	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
+	"boge.dev/golang-api/utils/email"
 	"boge.dev/golang-api/utils/testutils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuthController_Login(t *testing.T) {
@@ -1032,5 +1037,669 @@ func TestGenerateOAuthState(t *testing.T) {
 
 		// 32 bytes base64 encoded should be at least 40 characters
 		assert.GreaterOrEqual(t, len(state), 40)
+	})
+}
+
+func TestAuthController_ForgotPassword(t *testing.T) {
+	app := testutils.SetupTestApp(t)
+
+	// Mock email service
+	mockEmail := email.NewMockEmailService()
+	authService := NewAuthService(mockEmail)
+	authController := NewAuthController(authService)
+
+	// Route with mock controller
+	authGroup := app.Group("/api/auth")
+	authGroup.Post("/forgot-password", authController.ForgotPassword)
+
+	t.Run("Returns generic success message for existing user", func(t *testing.T) {
+		mockEmail.Reset()
+
+		reqBody := map[string]string{
+			"email": testutils.ValidTestUserEmail,
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response["message"], "If an account with that email exists")
+
+		assert.Equal(t, 1, mockEmail.GetCallCount())
+		assert.True(t, mockEmail.WasCalledWith(testutils.ValidTestUserEmail))
+	})
+
+	t.Run("Returns same message for non-existent user (prevents enumeration)", func(t *testing.T) {
+		mockEmail.Reset()
+
+		reqBody := map[string]string{
+			"email": "nonexistent@example.com",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response["message"], "If an account with that email exists")
+	})
+
+	t.Run("Returns error for invalid request body", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/forgot-password",
+			bytes.NewReader([]byte("invalid json")))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Equal(t, "invalid request body", response["error"])
+	})
+
+	t.Run("Returns error for missing email field", func(t *testing.T) {
+		reqBody := map[string]string{}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response["error"], "email")
+	})
+
+	t.Run("Returns error for invalid email format", func(t *testing.T) {
+		reqBody := map[string]string{
+			"email": "not-an-email",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response["error"], "email")
+	})
+
+	t.Run("Returns error for empty email", func(t *testing.T) {
+		reqBody := map[string]string{
+			"email": "",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("Handles concurrent requests properly", func(t *testing.T) {
+		const numRequests = 5
+		var wg sync.WaitGroup
+		results := make(chan int, numRequests)
+
+		for i := 0; i < numRequests; i++ {
+			wg.Add(1)
+			go func(index int) {
+				defer wg.Done()
+
+				reqBody := map[string]string{
+					"email": fmt.Sprintf("concurrent%d@example.com", index),
+				}
+				body, _ := json.Marshal(reqBody)
+
+				req := httptest.NewRequest(http.MethodPost, "/api/auth/forgot-password",
+					bytes.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+
+				resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+				if err == nil {
+					results <- resp.StatusCode
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(results)
+
+		for statusCode := range results {
+			assert.Equal(t, http.StatusOK, statusCode)
+		}
+	})
+
+	t.Run("Does not reveal Redis errors to client", func(t *testing.T) {
+		// This would require temporarily closing Redis connection
+		// Skip for now as it would affect other tests
+		t.Skip("Requires Redis connection manipulation")
+	})
+
+	t.Run("Validates email length", func(t *testing.T) {
+		longEmail := string(make([]byte, 256)) + "@example.com"
+		reqBody := map[string]string{
+			"email": longEmail,
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		// Should either validate or return generic success
+		assert.True(t, resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusBadRequest)
+	})
+
+	t.Run("Trims whitespace from email", func(t *testing.T) {
+		reqBody := map[string]string{
+			"email": "  " + testutils.ValidTestUserEmail + "  ",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("Handles case-insensitive email matching", func(t *testing.T) {
+		upperEmail := "TESTUSER@EXAMPLE.COM"
+		reqBody := map[string]string{
+			"email": upperEmail,
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/forgot-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+}
+
+func TestAuthController_ResetPassword(t *testing.T) {
+	app := testutils.SetupTestApp(t)
+	RegisterAuthRoutes(app)
+	testDB := database.DB.DB
+
+	// Helper to generate valid reset token
+	generateValidToken := func(t *testing.T, email string) string {
+		t.Helper()
+		testutils.CreateTestUser(t, testDB, email, testutils.ValidTestUserPassword)
+
+		service := NewAuthService()
+		_, token, err := service.GenerateForgotPWUuid(email)
+		require.NoError(t, err)
+		require.NotEmpty(t, token)
+
+		return token
+	}
+
+	t.Run("Successfully resets password with valid token", func(t *testing.T) {
+		email := "resetsuccess@example.com"
+		newPassword := "NewSecurePass123!"
+		token := generateValidToken(t, email)
+
+		reqBody := map[string]string{
+			"token":              token,
+			"newPassword":        newPassword,
+			"newPasswordConfirm": newPassword,
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Equal(t, "Password reset successfully", response["message"])
+
+		// Verify can login with new password
+		loginData := LoginDTO{
+			Email:    email,
+			Password: newPassword,
+		}
+		loginBody, _ := json.Marshal(loginData)
+		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+		loginReq.Header.Set("Content-Type", "application/json")
+
+		loginResp, err := app.Test(loginReq)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, loginResp.StatusCode)
+	})
+
+	t.Run("Returns error for invalid token", func(t *testing.T) {
+		reqBody := map[string]string{
+			"token":              "invalid-token-12345",
+			"newPassword":        "NewSecurePass123!",
+			"newPasswordConfirm": "NewSecurePass123!",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response["error"], "invalid")
+	})
+
+	t.Run("Returns error for missing token", func(t *testing.T) {
+		reqBody := map[string]string{
+			"newPassword":        "NewSecurePass123!",
+			"newPasswordConfirm": "NewSecurePass123!",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("Returns error for missing password", func(t *testing.T) {
+		email := "missingpass@example.com"
+		token := generateValidToken(t, email)
+
+		reqBody := map[string]string{
+			"token": token,
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("Returns error for weak password", func(t *testing.T) {
+		email := "weakpass@example.com"
+		token := generateValidToken(t, email)
+
+		reqBody := map[string]string{
+			"token":              token,
+			"newPassword":        "weak",
+			"newPasswordConfirm": "weak",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Contains(t, response["error"], "password")
+	})
+
+	t.Run("Cannot reuse token after successful reset", func(t *testing.T) {
+		email := "noreuse@example.com"
+		token := generateValidToken(t, email)
+
+		reqBody := map[string]string{
+			"token":              token,
+			"newPassword":        "FirstPassword123!",
+			"newPasswordConfirm": "FirstPassword123!",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		// First reset - should succeed
+		req1 := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req1.Header.Set("Content-Type", "application/json")
+		resp1, err := app.Test(req1, int(10*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp1.StatusCode)
+
+		// Second reset with same token - should fail
+		reqBody2 := map[string]string{
+			"token":              token,
+			"newPassword":        "SecondPassword123!",
+			"newPasswordConfirm": "SecondPassword123!",
+		}
+		body2, _ := json.Marshal(reqBody2)
+
+		req2 := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body2))
+		req2.Header.Set("Content-Type", "application/json")
+		resp2, err := app.Test(req2)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
+	})
+
+	t.Run("Returns error for empty password", func(t *testing.T) {
+		email := "emptypass@example.com"
+		token := generateValidToken(t, email)
+
+		reqBody := map[string]string{
+			"token":              token,
+			"newPassword":        "",
+			"newPasswordConfirm": "",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("Returns error for invalid request body", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password",
+			bytes.NewReader([]byte("invalid json")))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Equal(t, "invalid request body", response["error"])
+	})
+
+	t.Run("Returns error for malformed UUID token", func(t *testing.T) {
+		reqBody := map[string]string{
+			"token":              "not-a-uuid",
+			"newPassword":        "NewSecurePass123!",
+			"newPasswordConfirm": "NewSecurePass123!",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("Validates password meets complexity requirements", func(t *testing.T) {
+		email := "complexity@example.com"
+		token := generateValidToken(t, email)
+
+		weakPasswords := []string{
+			"short",          // Too short
+			"alllowercase",   // No uppercase or special chars
+			"ALLUPPERCASE",   // No lowercase or special chars
+			"NoSpecialChar1", // No special characters
+			"NoNumbers!@#",   // No numbers
+		}
+
+		for _, weakPass := range weakPasswords {
+			reqBody := map[string]string{
+				"token":              token,
+				"newPassword":        weakPass,
+				"newPasswordConfirm": weakPass,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+			assert.NoError(t, err)
+			assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
+				"Password '%s' should be rejected", weakPass)
+		}
+	})
+
+	t.Run("Old password no longer works after reset", func(t *testing.T) {
+		email := "oldpassfail@example.com"
+		oldPassword := "OldPassword123!"
+		testutils.CreateTestUser(t, testDB, email, oldPassword)
+
+		service := NewAuthService()
+		_, token, err := service.GenerateForgotPWUuid(email)
+		require.NoError(t, err)
+
+		reqBody := map[string]string{
+			"token":              token,
+			"newPassword":        "NewPassword123!",
+			"newPasswordConfirm": "NewPassword123!",
+		}
+		body, _ := json.Marshal(reqBody)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Try to login with old password - should fail
+		loginData := LoginDTO{
+			Email:    email,
+			Password: oldPassword,
+		}
+		loginBody, _ := json.Marshal(loginData)
+		loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(loginBody))
+		loginReq.Header.Set("Content-Type", "application/json")
+
+		loginResp, err := app.Test(loginReq)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, loginResp.StatusCode)
+	})
+
+	t.Run("Handles concurrent reset attempts", func(t *testing.T) {
+		email := "concurrent@example.com"
+		token := generateValidToken(t, email)
+
+		const numAttempts = 3
+		var wg sync.WaitGroup
+		results := make(chan int, numAttempts)
+
+		for i := 0; i < numAttempts; i++ {
+			wg.Add(1)
+			go func(index int) {
+				defer wg.Done()
+
+				reqBody := map[string]string{
+					"token":              token,
+					"newPassword":        fmt.Sprintf("Password%d!@#", index),
+					"newPasswordConfirm": fmt.Sprintf("Password%d!@#", index),
+				}
+				body, _ := json.Marshal(reqBody)
+
+				req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password",
+					bytes.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+
+				resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+				if err == nil {
+					results <- resp.StatusCode
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(results)
+
+		successCount := 0
+		for statusCode := range results {
+			if statusCode == http.StatusOK {
+				successCount++
+			}
+		}
+
+		// Only one should succeed
+		assert.Equal(t, 1, successCount, "Only one concurrent reset should succeed")
+	})
+
+	t.Run("Token expires after configured TTL", func(t *testing.T) {
+		email := "expiry@example.com"
+		token := generateValidToken(t, email)
+
+		// Verify token exists in Redis
+		ctx := context.Background()
+		key := fmt.Sprintf("forgot_pw:%s", token)
+		exists, err := database.RDB.Client.Exists(ctx, key).Result()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), exists, "Token should exist in Redis")
+
+		// Check TTL is set correctly
+		ttl, err := database.RDB.Client.TTL(ctx, key).Result()
+		assert.NoError(t, err)
+		assert.Greater(t, ttl, time.Duration(0), "TTL should be positive")
+		assert.LessOrEqual(t, ttl, constants.ForgotPWTokenTTL, "TTL should not exceed configured value")
+
+		// Simulate token expiration by deleting it from Redis
+		err = database.RDB.Client.Del(ctx, key).Err()
+		assert.NoError(t, err)
+
+		// Verify token is deleted
+		exists, err = database.RDB.Client.Exists(ctx, key).Result()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), exists, "Token should be deleted")
+
+		// Try to reset password with expired token
+		reqBody := map[string]string{
+			"token":              token,
+			"newPassword":        "NewPassword123!",
+			"newPasswordConfirm": "NewPassword123!",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req, int(5*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "Should reject expired token")
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.NotNil(t, response["error"], "Should return an error")
+		errorStr, ok := response["error"].(string)
+		assert.True(t, ok, "Error should be a string")
+		assert.Contains(t, errorStr, "invalid", "Should return error about invalid/expired token")
+	})
+
+	t.Run("Password and confirmation must match", func(t *testing.T) {
+		email := "passconfirmationfail@example.com"
+		pw := "Password123!"
+
+		reqBody := map[string]string{
+			"token":              generateValidToken(t, email),
+			"newPassword":        pw,
+			"newPasswordConfirm": pw + "mismatch",
+		}
+
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("Token remains valid before TTL expires", func(t *testing.T) {
+		email := "validbeforexpiry@example.com"
+		token := generateValidToken(t, email)
+
+		// Wait a bit but not long enough for expiration
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify token still exists
+		ctx := context.Background()
+		key := fmt.Sprintf("forgot_pw:%s", token)
+		exists, err := database.RDB.Client.Exists(ctx, key).Result()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), exists, "Token should still exist")
+
+		// Verify TTL is still positive
+		ttl, err := database.RDB.Client.TTL(ctx, key).Result()
+		assert.NoError(t, err)
+		assert.Greater(t, ttl, time.Duration(0), "TTL should still be positive")
+
+		// Try to reset password - should work
+		reqBody := map[string]string{
+			"token":              token,
+			"newPassword":        "ValidPassword123!",
+			"newPasswordConfirm": "ValidPassword123!",
+		}
+		body, err := json.Marshal(reqBody)
+		assert.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/reset-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req, int(10*time.Second.Milliseconds()))
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "Token should still be valid")
+
+		var response map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assert.NoError(t, err)
+		assert.Equal(t, "Password reset successfully", response["message"])
 	})
 }

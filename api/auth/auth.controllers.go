@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"boge.dev/golang-api/api"
@@ -22,7 +23,10 @@ type AuthController struct {
 	AuthService *AuthService
 }
 
-func NewAuthController() *AuthController {
+func NewAuthController(authService ...*AuthService) *AuthController {
+	if len(authService) > 0 {
+		return &AuthController{AuthService: authService[0]}
+	}
 	return &AuthController{AuthService: NewAuthService()}
 }
 
@@ -406,6 +410,20 @@ func (c *AuthController) ForgotPassword(ctx *fiber.Ctx) error {
 		})
 	}
 
+	if forgotPasswordBody.Email == "" {
+		return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "email is required",
+		})
+	}
+
+	forgotPasswordBody.Email = strings.TrimSpace(forgotPasswordBody.Email)
+
+	if err := ValidateEmail(forgotPasswordBody.Email); err != nil {
+		return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "email format is invalid",
+		})
+	}
+
 	userData, token, err := c.AuthService.GenerateForgotPWUuid(forgotPasswordBody.Email)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
@@ -450,6 +468,18 @@ func (c *AuthController) ResetPassword(ctx *fiber.Ctx) error {
 		})
 	}
 
+	if resetData.NewPassword == "" || resetData.NewPasswordConfirm == "" || resetData.Token == "" {
+		return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "all fields are required",
+		})
+	}
+
+	if err := ValidatePassword(resetData.NewPassword); err != nil {
+		return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
+			Error: "password does not meet security requirements",
+		})
+	}
+
 	if err := c.AuthService.ResetPassword(resetData); err != nil {
 		switch {
 		case errors.Is(err, ErrInvalidToken):
@@ -464,6 +494,10 @@ func (c *AuthController) ResetPassword(ctx *fiber.Ctx) error {
 		case errors.Is(err, ErrPasswordTooWeak):
 			return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
 				Error: "password does not meet security requirements",
+			})
+		case errors.Is(err, ErrPasswordMismatch):
+			return ctx.Status(http.StatusBadRequest).JSON(api.ErrorResponse{
+				Error: "passwords do not match",
 			})
 		default:
 			return ctx.Status(http.StatusInternalServerError).JSON(api.ErrorResponse{

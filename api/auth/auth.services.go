@@ -17,6 +17,7 @@ import (
 	"boge.dev/golang-api/api/user"
 	"boge.dev/golang-api/constants"
 	database "boge.dev/golang-api/db"
+	"boge.dev/golang-api/utils"
 	"boge.dev/golang-api/utils/email"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -27,16 +28,31 @@ import (
 )
 
 type AuthService struct {
-	DB          *gorm.DB
-	UserService *user.UserService
-	RateLimiter *RateLimiter
+	DB           *gorm.DB
+	UserService  *user.UserService
+	RateLimiter  *RateLimiter
+	emailService email.EmailSender
 }
 
-func NewAuthService() *AuthService {
+func NewAuthService(emailService ...email.EmailSender) *AuthService {
+	var emailProvider email.EmailSender
+
+	if len(emailService) != 0 {
+		emailProvider = emailService[0]
+	} else {
+		if os.Getenv("RESEND_API_KEY") == "" || os.Getenv("EMAIL_FROM") == "" {
+			log.Println("Warning: Email service not configured. Using mock email service.")
+			emailProvider = email.NewMockEmailService()
+		} else {
+			emailProvider = email.NewEmailService()
+		}
+	}
+
 	return &AuthService{
-		DB:          database.DB.DB,
-		UserService: user.NewUserService(),
-		RateLimiter: NewRateLimiter(),
+		DB:           database.DB.DB,
+		UserService:  user.NewUserService(),
+		RateLimiter:  NewRateLimiter(),
+		emailService: emailProvider,
 	}
 }
 
@@ -386,7 +402,7 @@ func (s *AuthService) ExchangeCodeAndGetUser(code string, oauthConfig *oauth2.Co
 func (s *AuthService) GenerateForgotPWUuid(email string) (*user.User, string, error) {
 	userData, err := s.UserService.GetUserByEmail(email)
 	if err != nil {
-		return nil, "", err
+		return nil, "", ErrUserNotFound
 	}
 
 	forgotPWUuid := uuid.New().String()
@@ -398,7 +414,11 @@ func (s *AuthService) GenerateForgotPWUuid(email string) (*user.User, string, er
 }
 
 func (s *AuthService) ResetPassword(resetData ResetPasswordDTO) error {
-	res, err := database.RDB.Client.Get(context.Background(), fmt.Sprintf("forgot_pw:%s", resetData.Token)).Result()
+	if resetData.NewPassword != resetData.NewPasswordConfirm {
+		return ErrPasswordMismatch
+	}
+
+	res, err := database.RDB.Client.GetDel(context.Background(), fmt.Sprintf("forgot_pw:%s", resetData.Token)).Result()
 
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -411,16 +431,11 @@ func (s *AuthService) ResetPassword(resetData ResetPasswordDTO) error {
 		return fmt.Errorf("failed to change password: %w", err)
 	}
 
-	if err := database.RDB.Client.Del(context.Background(), fmt.Sprintf("forgot_pw:%s", resetData.Token)).Err(); err != nil {
-		return fmt.Errorf("failed to delete reset token from redis: %w", err)
-	}
-
 	return nil
 }
 
 func (s *AuthService) SendResetPasswordEmail(userFirstname, userEmail, token string) error {
-	wd, _ := os.Getwd()
-	resetPWTemplate := filepath.Join(wd, "go_templates", "emails", "reset_password.gohtml")
+	resetPWTemplate := filepath.Join(utils.GetProjectRoot(), "go_templates", "emails", "reset_password.gohtml")
 	tmpl, err := template.ParseFiles(resetPWTemplate)
 	if err != nil {
 		log.Println("Failed to parse email template:", err)
@@ -452,18 +467,17 @@ func (s *AuthService) SendResetPasswordEmail(userFirstname, userEmail, token str
 		return fmt.Errorf("internal server error")
 	}
 
-	es := email.NewEmailService()
-	if es == nil {
+	if s.emailService == nil {
 		log.Println("Email service not configured")
 		return fmt.Errorf("internal server error")
 	}
-	if err := es.SendEmail(
+	if err := s.emailService.SendEmail(
 		[]string{userEmail},
 		"Password Reset Request",
 		body.String(),
 	); err != nil {
 		log.Println("Failed to send reset password email:", err)
-		return fmt.Errorf("internal server error")
+		return fmt.Errorf("failed to send email")
 	}
 
 	return nil
