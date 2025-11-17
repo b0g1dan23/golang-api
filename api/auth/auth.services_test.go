@@ -1526,7 +1526,8 @@ func TestAuthService_SendResetPasswordEmail(t *testing.T) {
 		mockEmail := email.NewMockEmailService()
 		service := NewAuthService(mockEmail)
 
-		service.SendResetPasswordEmail("John", "john@example.com", "token")
+		err := service.SendResetPasswordEmail("John", "john@example.com", "token")
+		assert.NoError(t, err)
 		assert.Equal(t, 1, mockEmail.GetCallCount())
 
 		mockEmail.Reset()
@@ -1579,8 +1580,9 @@ func TestAuthService_ResetPassword(t *testing.T) {
 		require.NoError(t, err)
 
 		err = service.ResetPassword(ResetPasswordDTO{
-			Token:       token,
-			NewPassword: "NewSecurePass123!",
+			Token:              token,
+			NewPassword:        "NewSecurePass123!",
+			NewPasswordConfirm: "NewSecurePass123!",
 		})
 		assert.NoError(t, err)
 
