@@ -167,7 +167,7 @@ func ParseJWTClaims(t *testing.T, tokenString string, allowExpired ...bool) jwt.
 
 	var token *jwt.Token
 	var err error
-	if len(allowExpired) != 0 && allowExpired[0] == true {
+	if len(allowExpired) != 0 && allowExpired[0] {
 		token, err = jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
