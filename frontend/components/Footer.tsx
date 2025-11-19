@@ -5,11 +5,11 @@ import { FaLinkedin, FaGithub, FaYoutube } from "react-icons/fa";
 
 const Footer = () => {
   return (
-    <footer className="py-24! border-t border-(--primary-800)">
+    <footer className="py-10! border-t border-(--primary-800)">
       <div className="container">
-        <div className="flex justify-between items-center max-md:flex-col max-md:text-center max-md:gap-[2.4rem]">
+        <div className="flex justify-between items-center max-md:flex-col max-md:text-center max-md:gap-8">
           <Logo />
-          <ul className="flex gap-[4.8rem] max-md:flex-col max-md:gap-[1.6rem]">
+          <ul className="flex gap-14 max-md:flex-col max-md:gap-[1.6rem]">
             <li>
               <Link className="uppercase font-bold" href="/">
                 Home
@@ -26,10 +26,13 @@ const Footer = () => {
               </Link>
             </li>
           </ul>
-          <ul className="flex gap-[2.4rem]">
+          <ul className="flex gap-8">
             {process.env.NEXT_PUBLIC_LINKEDIN_URL && (
               <li>
-                <Link href={process.env.NEXT_PUBLIC_LINKEDIN_URL} target="_blank">
+                <Link
+                  href={process.env.NEXT_PUBLIC_LINKEDIN_URL}
+                  target="_blank"
+                >
                   <FaLinkedin size={18} />
                 </Link>
               </li>
@@ -43,14 +46,17 @@ const Footer = () => {
             )}
             {process.env.NEXT_PUBLIC_YOUTUBE_URL && (
               <li>
-                <Link href={process.env.NEXT_PUBLIC_YOUTUBE_URL} target="_blank">
+                <Link
+                  href={process.env.NEXT_PUBLIC_YOUTUBE_URL}
+                  target="_blank"
+                >
                   <FaYoutube size={18} />
                 </Link>
               </li>
             )}
           </ul>
         </div>
-        <hr className="text-(--primary-800) mt-24!" />
+        <hr className="text-(--primary-800) mt-10!" />
         <div className="flex items-center justify-center mt-[2.4rem]! gap-[2.4rem] max-md:flex-col">
           <p className="max-md:order-2">
             &copy; {new Date().getFullYear()} boge.dev | All rights reserved.

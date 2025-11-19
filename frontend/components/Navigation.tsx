@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import Button from "./ui/Button";
+import { Button } from "./ui/button";
 import Logo from "./ui/Logo";
 import { usePathname } from "next/navigation";
 import { IoIosMenu } from "react-icons/io";
@@ -30,7 +30,11 @@ const Navigation = () => {
   return (
     <div
       className={`text-(--foreground-color) bg-(--background-color) border-b border-neutral-600 sticky top-0 z-50 shadow-nav transition-all duration-500 ease-in-out
-                  ${isLoaded ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"}`}
+                  ${
+                    isLoaded
+                      ? "translate-y-0 opacity-100"
+                      : "-translate-y-full opacity-0"
+                  }`}
     >
       <nav
         className={`flex py-6! items-center justify-between container relative z-20
@@ -39,16 +43,17 @@ const Navigation = () => {
         <Logo />
 
         {/* Desktop Menu */}
-        <div className="flex items-center gap-[5.6rem]">
-          <ul className="hidden lg:flex gap-20">
+        <div className="flex items-center gap-14">
+          <ul className="hidden lg:flex gap-10">
             {navigationData.map((item) => (
               <li key={item.label}>
                 <Link
                   href={item.href}
-                  className={`uppercase ${path === item.href
-                    ? "font-medium text-purple-400 transform-all duration-300 ease-in-out"
-                    : "hover:font-medium transform-all duration-300 ease-in-out"
-                    }
+                  className={`uppercase ${
+                    path === item.href
+                      ? "font-medium text-green-400 transform-all duration-300 ease-in-out"
+                      : "hover:font-medium transform-all duration-300 ease-in-out"
+                  }
                 `}
                 >
                   {item.label}
@@ -58,22 +63,20 @@ const Navigation = () => {
           </ul>
 
           <div className="flex items-center gap-4">
-            <Button
-              href="/login"
-              className="max-lg:hidden"
-            >
-              Login
-            </Button>
+            <Link href="/login" className="max-lg:hidden">
+              <Button
+                size="lg"
+                className="bg-green-400 text-black hover:scale-105 hover:bg-green-500 active:scale-95"
+              >
+                Login
+              </Button>
+            </Link>
 
             <button
               className="lg:hidden z-30 relative"
               onClick={() => setShowMenu((prev) => !prev)}
             >
-              {showMenu ? (
-                <IoClose size={32} />
-              ) : (
-                <IoIosMenu size={32} />
-              )}
+              {showMenu ? <IoClose size={32} /> : <IoIosMenu size={32} />}
             </button>
           </div>
         </div>
@@ -89,10 +92,11 @@ const Navigation = () => {
             <li key={item.label}>
               <Link
                 href={item.href}
-                className={`${path === item.href
-                  ? "font-extrabold text-purple-400 transform-all duration-300 ease-in-out"
-                  : "hover:font-extrabold transform-all duration-300 ease-in-out"
-                  }
+                className={`${
+                  path === item.href
+                    ? "font-extrabold text-green-400 transform-all duration-300 ease-in-out"
+                    : "hover:font-extrabold transform-all duration-300 ease-in-out"
+                }
                 `}
                 onClick={() => setShowMenu(false)}
               >
@@ -101,9 +105,16 @@ const Navigation = () => {
             </li>
           ))}
           <li>
-            <Button href="/login" className="w-full text-center" onClick={() => setShowMenu(false)}>
-              Login
-            </Button>
+            <Link href="/login">
+              <Button
+                size="lg"
+                variant="outline"
+                className="w-full text-center border-green-400! hover:scale-105 active:scale-95"
+                onClick={() => setShowMenu(false)}
+              >
+                Login
+              </Button>
+            </Link>
           </li>
         </ul>
       </div>

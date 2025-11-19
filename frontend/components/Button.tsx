@@ -24,12 +24,13 @@ const Button = ({
         onClick={onClick}
         className={`rounded-xl inline-block text-nowrap
                   py-[1.6rem]! px-12! uppercase font-bold text-[1.4rem]
-                  ${variant === "primary"
-            ? "bg-purple-400 text-(--background-color) hover:bg-purple-600 hover:text-white"
-            : variant === "secondary"
-              ? "bg-purple-900 text-white border border-purple-400/30"
-              : "bg-linear-to-r from-purple-700 to-purple-400 border-linear text-white"
-          }
+                  ${
+                    variant === "primary"
+                      ? "bg-green-400 text-(--background-color) hover:bg-green-600 hover:text-white"
+                      : variant === "secondary"
+                      ? "bg-green-900 text-white border border-green-400/30"
+                      : "bg-linear-to-r from-green-700 to-green-400 border-linear text-white"
+                  }
                   hover:scale-105 active:scale-90
                   transition-all duration-300 ease-in-out
                   ${className ?? ""}`}
@@ -45,12 +46,13 @@ const Button = ({
       type={type}
       className={`rounded-xl overflow-hidden inline-block text-nowrap
                   py-[1.6rem]! px-12! uppercase font-bold text-[1.4rem]
-                  ${variant === "primary"
-          ? "bg-purple-400 text-(--background-color) hover:bg-purple-600 hover:text-white"
-          : variant === "secondary"
-            ? "bg-purple-900 text-white border border-purple-400/30"
-            : "bg-linear-to-r from-purple-700 to-purple-400 border-linear text-white"
-        }
+                  ${
+                    variant === "primary"
+                      ? "bg-green-400 text-(--background-color) hover:bg-green-600 hover:text-white"
+                      : variant === "secondary"
+                      ? "bg-green-900 text-white border border-green-400/30"
+                      : "bg-linear-to-r from-green-700 to-green-400 border-linear text-white"
+                  }
                   hover:scale-105 active:scale-90
                   cursor-pointer
                   transition-all duration-300 ease-in-out
