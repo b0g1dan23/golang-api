@@ -40,7 +40,7 @@ const Features = () => {
           </div>
         </div>
       </div>
-    </section>
+    </section >
   );
 };
 export default Features;

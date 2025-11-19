@@ -1,6 +1,3 @@
-import woman_cat from "@/public/testimonials/woman_white-bg.jpg";
-import Image from "next/image";
-import { TiStarFullOutline } from "react-icons/ti";
 import {
   AnimatedTestimonials,
   Testimonial,
@@ -29,7 +26,7 @@ const TestimonialsFlex = () => {
       <div className="text-center">
         <span className="uppercase text-sm">Testimonials</span>
         <h2 className="text-2xl">
-          What <span className="text-green-400! opacity-100!">our clients</span>{" "}
+          What <span className="text-purple-400! opacity-100!">our clients</span>{" "}
           say
         </h2>
       </div>

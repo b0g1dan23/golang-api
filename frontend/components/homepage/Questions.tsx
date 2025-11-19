@@ -17,7 +17,7 @@ const Questions = () => {
           to help!
         </p>
         <Link href="/contact">
-          <Button className="mt-32 max-md:mt-16 bg-green-400 hover:bg-green-500 text-black hover:scale-105 active:scale-95">
+          <Button className="mt-32 max-md:mt-16 hover:scale-105 active:scale-95">
             Contact us
           </Button>
         </Link>

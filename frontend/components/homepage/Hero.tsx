@@ -15,13 +15,13 @@ const Hero = () => {
         </div>
         <Button
           size="lg"
-          className="mt-16! bg-green-400 text-black hover:bg-green-500 hover:scale-105 active:scale-95"
+          className="mt-16! hover:scale-105 active:scale-95"
         >
           Get started
         </Button>
       </div>
 
-      <div className="bg-(--foreground-color)/20 rounded-4xl">
+      <div className="bg-(--foreground)/20 rounded-4xl">
         <Image src={hero_image} alt="Hero Image" />
       </div>
     </section>

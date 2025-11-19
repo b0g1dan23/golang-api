@@ -37,9 +37,9 @@ export default function CookiePolicy() {
                             These cookies are strictly necessary to provide you with services available through our website and to use
                             some of its features, such as access to secure areas.
                         </p>
-                        <div className="bg-(--foreground-color) p-4 rounded-lg mt-3">
-                            <p className="font-medium text-(--background-color)! opacity-100! mb-2">Examples:</p>
-                            <ul className="list-disc pl-5 text-(--background-color) space-y-1">
+                        <div className="bg-(--foreground) p-4 rounded-lg mt-3">
+                            <p className="font-medium text-(--background)! opacity-100! mb-2">Examples:</p>
+                            <ul className="list-disc pl-5 text-(--background) space-y-1">
                                 <li>Session cookies: Temporary cookies that expire when you close your browser</li>
                                 <li>Authentication cookies: Keep you logged in as you navigate the site</li>
                                 <li>Security cookies: Used to detect authentication abuses</li>
@@ -53,9 +53,9 @@ export default function CookiePolicy() {
                             These cookies allow us to count visits and traffic sources so we can measure and improve the performance of our site.
                             They help us to know which pages are the most and least popular and see how visitors move around the site.
                         </p>
-                        <div className="bg-(--foreground-color) p-4 rounded-lg mt-3">
-                            <p className="font-medium text-(--background-color)! opacity-100! mb-2">Examples:</p>
-                            <ul className="list-disc pl-5 text-(--background-color) space-y-1">
+                        <div className="bg-(--foreground) p-4 rounded-lg mt-3">
+                            <p className="font-medium text-(--background)! opacity-100! mb-2">Examples:</p>
+                            <ul className="list-disc pl-5 text-(--background) space-y-1">
                                 <li>Google Analytics: Tracks user behavior and provides website statistics</li>
                                 <li>Page load time tracking: Helps us optimize performance</li>
                                 <li>Error tracking: Helps us identify and fix issues</li>
@@ -69,9 +69,9 @@ export default function CookiePolicy() {
                             These cookies enable the website to provide enhanced functionality and personalization. They may be set by us or
                             by third party providers whose services we have added to our pages.
                         </p>
-                        <div className="bg-(--foreground-color) p-4 rounded-lg mt-3">
-                            <p className="font-medium text-(--background-color)! opacity-100! mb-2">Examples:</p>
-                            <ul className="list-disc pl-5 text-(--background-color) space-y-1">
+                        <div className="bg-(--foreground) p-4 rounded-lg mt-3">
+                            <p className="font-medium text-(--background)! opacity-100! mb-2">Examples:</p>
+                            <ul className="list-disc pl-5 text-(--background) space-y-1">
                                 <li>Language preferences: Remember your language settings</li>
                                 <li>Theme preferences: Remember your display preferences</li>
                                 <li>User preferences: Remember your customization choices</li>
@@ -85,9 +85,9 @@ export default function CookiePolicy() {
                             These cookies may be set through our site by our advertising partners. They may be used by those companies to
                             build a profile of your interests and show you relevant adverts on other sites.
                         </p>
-                        <div className="bg-(--foreground-color) p-4 rounded-lg mt-3">
-                            <p className="font-medium text-(--background-color)! opacity-100! mb-2">Examples:</p>
-                            <ul className="list-disc pl-5 text-(--background-color) space-y-1">
+                        <div className="bg-(--foreground) p-4 rounded-lg mt-3">
+                            <p className="font-medium text-(--background)! opacity-100! mb-2">Examples:</p>
+                            <ul className="list-disc pl-5 text-(--background) space-y-1">
                                 <li>Retargeting cookies: Show you ads for products you've viewed</li>
                                 <li>Social media cookies: Allow you to share content on social networks</li>
                                 <li>Ad performance tracking: Measure the effectiveness of advertising campaigns</li>
@@ -113,8 +113,8 @@ export default function CookiePolicy() {
                     <p className="text-gray-700">
                         In addition to our own cookies, we may also use various third-party cookies to report usage statistics of the service:
                     </p>
-                    <div className="bg-(--foreground-color) p-4 rounded-lg">
-                        <ul className="list-disc pl-5 text-(--background-color) space-y-2">
+                    <div className="bg-(--foreground) p-4 rounded-lg">
+                        <ul className="list-disc pl-5 text-(--background) space-y-2">
                             <li><strong>Google Analytics:</strong> For website analytics and performance monitoring</li>
                             <li><strong>Social Media Platforms:</strong> For social sharing functionality</li>
                             <li><strong>Advertising Networks:</strong> For targeted advertising</li>

@@ -16,7 +16,7 @@ const Footer = () => {
               </Link>
             </li>
             <li>
-              <Link className="uppercase font-bold" href="/sign-up">
+              <Link className="uppercase font-bold" href="/login?mode=signup">
                 Sign up
               </Link>
             </li>

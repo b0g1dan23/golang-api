@@ -15,7 +15,7 @@ export interface NavigationItem {
 
 export const navigationData: NavigationItem[] = [
   { label: "Home", href: "/" },
-  { label: "Sign up", href: "/sign-up" },
+  { label: "Sign up", href: "/login?mode=signup" },
 ];
 
 const Navigation = () => {
@@ -29,12 +29,11 @@ const Navigation = () => {
 
   return (
     <div
-      className={`text-(--foreground-color) bg-(--background-color) border-b border-neutral-600 sticky top-0 z-50 shadow-nav transition-all duration-500 ease-in-out
-                  ${
-                    isLoaded
-                      ? "translate-y-0 opacity-100"
-                      : "-translate-y-full opacity-0"
-                  }`}
+      className={`text-(--foreground) bg-(--background) border-b border-neutral-600 sticky top-0 z-50 shadow-nav transition-all duration-500 ease-in-out
+                  ${isLoaded
+          ? "translate-y-0 opacity-100"
+          : "-translate-y-full opacity-0"
+        }`}
     >
       <nav
         className={`flex py-6! items-center justify-between container relative z-20
@@ -49,11 +48,10 @@ const Navigation = () => {
               <li key={item.label}>
                 <Link
                   href={item.href}
-                  className={`uppercase ${
-                    path === item.href
-                      ? "font-medium text-green-400 transform-all duration-300 ease-in-out"
-                      : "hover:font-medium transform-all duration-300 ease-in-out"
-                  }
+                  className={`uppercase ${path === item.href
+                    ? "font-medium text-purple-400 transform-all duration-300 ease-in-out"
+                    : "hover:font-medium transform-all duration-300 ease-in-out"
+                    }
                 `}
                 >
                   {item.label}
@@ -66,7 +64,7 @@ const Navigation = () => {
             <Link href="/login" className="max-lg:hidden">
               <Button
                 size="lg"
-                className="bg-green-400 text-black hover:scale-105 hover:bg-green-500 active:scale-95"
+                className="text-white hover:scale-105 active:scale-95"
               >
                 Login
               </Button>
@@ -92,11 +90,10 @@ const Navigation = () => {
             <li key={item.label}>
               <Link
                 href={item.href}
-                className={`${
-                  path === item.href
-                    ? "font-extrabold text-green-400 transform-all duration-300 ease-in-out"
-                    : "hover:font-extrabold transform-all duration-300 ease-in-out"
-                }
+                className={`${path === item.href
+                  ? "font-extrabold text-purple-400 transform-all duration-300 ease-in-out"
+                  : "hover:font-extrabold transform-all duration-300 ease-in-out"
+                  }
                 `}
                 onClick={() => setShowMenu(false)}
               >
@@ -109,7 +106,7 @@ const Navigation = () => {
               <Button
                 size="lg"
                 variant="outline"
-                className="w-full text-center border-green-400! hover:scale-105 active:scale-95"
+                className="w-full text-center hover:scale-105 active:scale-95"
                 onClick={() => setShowMenu(false)}
               >
                 Login

@@ -17,6 +17,10 @@ const logos = [
 const LogoLoop = () => {
   return (
     <section className="border-t border-b border-neutral-700 py-16!">
+      <div className="mb-10">
+        <span className="uppercase text-sm">Partners</span>
+        <h2 className="text-2xl">Our partners</h2>
+      </div>
       <Marquee gradient={false} speed={30} pauseOnHover={false}>
         <div className="flex items-center gap-24 max-md:gap-12 px-12!">
           {logos.map((image, i) => (
@@ -24,7 +28,7 @@ const LogoLoop = () => {
               <Image
                 src={image}
                 alt="Partner logo"
-                className="max-h-24 w-auto"
+                className="max-h-10 w-auto"
               />
             </div>
           ))}
