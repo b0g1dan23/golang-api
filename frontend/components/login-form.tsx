@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input"
 import Link from "next/link"
 import { FormEvent, useState } from "react"
 import { toast } from 'sonner'
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion";
 import z from "zod"
 
@@ -44,6 +44,7 @@ export function LoginForm({
   const [password, setPassword] = useState('')
   const searchParams = useSearchParams();
   const mode = searchParams.get('mode');
+  const router = useRouter();
 
   const handleSubmit = async (ev: FormEvent<HTMLFormElement>) => {
     ev.preventDefault();
@@ -67,6 +68,7 @@ export function LoginForm({
         }
 
         toast.success('Signup successful!');
+        router.push('/app');
       } else {
         loginSchema.parse({ email, password });
 
@@ -85,6 +87,7 @@ export function LoginForm({
         }
 
         toast.success('Login successful!');
+        router.push('/app');
       }
     } catch (err) {
       if (err instanceof z.ZodError) {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { refreshAuthToken } from './actions/utils';
 
 export async function proxy(request: NextRequest) {
     const cookies = request.cookies;
@@ -19,25 +20,20 @@ export async function proxy(request: NextRequest) {
     if (isAppRoute && !authToken) {
         if (refreshToken) {
             try {
-                const refreshRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Cookie: `refresh_token=${refreshToken}`,
-                    },
-                    credentials: 'include',
-                })
+                const res = await refreshAuthToken();
 
-                if (refreshRes.ok) {
-                    const setCookieHeader = refreshRes.headers.get('set-cookie');
-                    const response = NextResponse.next();
-
-                    if (setCookieHeader) {
-                        response.headers.set('set-cookie', setCookieHeader);
-                    }
-
-                    return response;
+                if (!res.ok) {
+                    throw new Error('Failed to refresh token');
                 }
+
+                const setCookieHeader = res.headers.get('set-cookie');
+                const response = NextResponse.next();
+
+                if (setCookieHeader) {
+                    response.headers.set('set-cookie', setCookieHeader);
+                }
+
+                return response;
             } catch (err) {
                 return NextResponse.redirect(new URL('/login', request.url));
             }
@@ -53,14 +49,7 @@ export async function proxy(request: NextRequest) {
 
     if (isLoginRoute && !authToken && refreshToken) {
         try {
-            const refreshRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Cookie: `refresh_token=${refreshToken}`,
-                },
-                credentials: 'include',
-            })
+            const refreshRes = await refreshAuthToken();
 
             if (!refreshRes.ok) {
                 return NextResponse.next();

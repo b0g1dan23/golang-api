@@ -482,3 +482,11 @@ func (s *AuthService) SendResetPasswordEmail(userFirstname, userEmail, token str
 
 	return nil
 }
+
+func (s *AuthService) GetJWTData(authToken string) (*JWTData, error) {
+	claims, err := parseJWT(authToken)
+	if err != nil {
+		return nil, err
+	}
+	return claims, nil
+}

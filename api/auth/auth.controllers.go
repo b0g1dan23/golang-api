@@ -156,7 +156,12 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 // @Router       /auth/logout [post]
 // @Security     BearerAuth
 func (c *AuthController) Logout(ctx *fiber.Ctx) error {
-	refreshToken := ctx.Cookies("__Host-refresh_token")
+	var refreshTokenName string
+	refreshTokenName = "refresh_token"
+	if os.Getenv("GO_ENV") != "development" {
+		refreshTokenName = "__Host-refresh_token"
+	}
+	refreshToken := ctx.Cookies(refreshTokenName)
 
 	if refreshToken == "" {
 		var refreshBody LogoutRequest
@@ -203,7 +208,6 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 // @Failure      401  {object}  api.ErrorResponse "Token revoked or invalid"
 // @Failure      500  {object}  api.ErrorResponse "Failed to store refresh token"
 // @Router       /auth/refresh [post]
-// @Security     BearerAuth
 func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 	var refreshTokenName string
 	refreshTokenName = "refresh_token"
@@ -538,4 +542,24 @@ func (c *AuthController) ResetPassword(ctx *fiber.Ctx) error {
 	return ctx.Status(http.StatusOK).JSON(fiber.Map{
 		"message": "Password reset successfully",
 	})
+}
+
+// ParseJWT godoc
+// @Summary      Parse JWT token
+// @Description  Extracts and validates JWT claims from auth token cookie
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  JWTData "JWT claims data"
+// @Failure      401  {object}  api.ErrorResponse "Invalid or expired token"
+// @Router       /auth/parse-jwt [post]
+func (c *AuthController) ParseJWT(ctx *fiber.Ctx) error {
+	authToken := ctx.Cookies("auth_token")
+	claims, err := c.AuthService.GetJWTData(authToken)
+	if err != nil {
+		return ctx.Status(fiber.StatusUnauthorized).JSON(api.ErrorResponse{
+			Error: "invalid or expired token",
+		})
+	}
+	return ctx.Status(fiber.StatusOK).JSON(claims)
 }

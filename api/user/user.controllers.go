@@ -131,3 +131,33 @@ func (c *UserController) DeleteUser(ctx *fiber.Ctx) error {
 	}
 	return ctx.Status(http.StatusNoContent).JSON(nil)
 }
+
+// LoggedUser godoc
+// @Summary      Get currently logged in user
+// @Description  Retrieves the profile of the currently authenticated user from JWT token cookie
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  User  "Current user profile"
+// @Failure      401  {object}  api.ErrorResponse "Unauthorized - Invalid or missing token"
+// @Failure      404  {object}  api.ErrorResponse "User not found"
+// @Failure      500  {object}  api.ErrorResponse "Internal server error"
+// @Router       /users/me [get]
+// @Security     BearerAuth
+func (c *UserController) LoggedUser(ctx *fiber.Ctx) error {
+	userID := ctx.Locals("userID")
+
+	user, err := c.UserService.GetUserByID(userID.(string))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ctx.Status(http.StatusNotFound).JSON(&api.ErrorResponse{
+				Error: "user not found",
+			})
+		}
+		return ctx.Status(http.StatusInternalServerError).JSON(&api.ErrorResponse{
+			Error: err.Error(),
+		})
+	}
+
+	return ctx.Status(http.StatusOK).JSON(user)
+}

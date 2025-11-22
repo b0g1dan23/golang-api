@@ -7,18 +7,23 @@ import { usePathname } from "next/navigation";
 import { IoIosMenu } from "react-icons/io";
 import { useEffect, useState } from "react";
 import { IoClose } from "react-icons/io5";
+import { User } from "@/models/user";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "./ui/dropdown-menu";
+import { logout } from "@/actions/auth.actions";
+import { toast } from "sonner";
 
 export interface NavigationItem {
   label: string;
   href: string;
+  authenticated?: boolean;
 }
 
 export const navigationData: NavigationItem[] = [
   { label: "Home", href: "/" },
-  { label: "Sign up", href: "/login?mode=signup" },
+  { label: "Sign up", href: "/login?mode=signup", authenticated: false },
 ];
 
-const Navigation = () => {
+const Navigation = ({ user }: { user: User | null }) => {
   const path = usePathname();
   const [showMenu, setShowMenu] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -44,7 +49,7 @@ const Navigation = () => {
         {/* Desktop Menu */}
         <div className="flex items-center gap-14">
           <ul className="hidden lg:flex gap-10">
-            {navigationData.map((item) => (
+            {navigationData.filter(item => item.authenticated === undefined || item.authenticated === !!user).map((item) => (
               <li key={item.label}>
                 <Link
                   href={item.href}
@@ -61,14 +66,53 @@ const Navigation = () => {
           </ul>
 
           <div className="flex items-center gap-4">
-            <Link href="/login" className="max-lg:hidden">
-              <Button
-                size="lg"
-                className="hover:scale-105 active:scale-95"
-              >
-                Login
-              </Button>
-            </Link>
+            {user && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <div className="max-lg:hidden h-10 w-10 rounded-full bg-purple-600 flex items-center justify-center cursor-pointer">
+                    <span className="opacity-100! font-bold">{user.firstname.charAt(0)}</span>
+                  </div>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-56" align="end">
+                  <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem>
+                      Profile
+                      <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      Billing
+                      <DropdownMenuShortcut>⌘B</DropdownMenuShortcut>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      Settings
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={async () => {
+                    try {
+                      await logout();
+                    } catch (err) {
+                      const e = err as Error;
+                      toast.error(e.message);
+                    }
+                  }}>
+                    Log out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+            )}
+            {!user && (
+              <Link href="/login" className="max-lg:hidden">
+                <Button
+                  size="lg"
+                  className="hover:scale-105 active:scale-95"
+                >
+                  Login
+                </Button>
+              </Link>
+            )}
 
             <button
               className="lg:hidden z-30 relative"

@@ -21,7 +21,8 @@ func RegisterAuthRoutes(app *fiber.App) {
 	}
 	authGroup.Post("/register", controller.RegisterUser)
 	authGroup.Post("/refresh", controller.RefreshToken)
+	authGroup.Post("/parse-jwt", controller.ParseJWT)
 
-	protected := authGroup.Group("", middleware.RequireRoles("user"))
+	protected := authGroup.Group("", middleware.RequireRoles("user", "admin", "owner"))
 	protected.Post("/logout", controller.Logout)
 }
