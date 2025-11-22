@@ -38,7 +38,10 @@ func RequireRoles(allowedRoles ...string) fiber.Handler {
 			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
 		} else {
 			// Fallback to cookie (browser)
-			tokenString = ctx.Cookies("__Secure-auth_token")
+			tokenString = ctx.Cookies("auth_token")
+			if os.Getenv("GO_ENV") != "development" {
+				tokenString = ctx.Cookies("__Secure-auth_token")
+			}
 		}
 
 		if tokenString == "" {

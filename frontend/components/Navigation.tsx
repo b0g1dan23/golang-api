@@ -29,7 +29,7 @@ const Navigation = () => {
 
   return (
     <div
-      className={`text-(--foreground) bg-(--background) border-b border-neutral-600 sticky top-0 z-50 shadow-nav transition-all duration-500 ease-in-out
+      className={`text-foreground bg-background border-b border-neutral-600 sticky top-0 z-50 shadow-nav transition-all duration-500 ease-in-out
                   ${isLoaded
           ? "translate-y-0 opacity-100"
           : "-translate-y-full opacity-0"
@@ -64,7 +64,7 @@ const Navigation = () => {
             <Link href="/login" className="max-lg:hidden">
               <Button
                 size="lg"
-                className="text-white hover:scale-105 active:scale-95"
+                className="hover:scale-105 active:scale-95"
               >
                 Login
               </Button>

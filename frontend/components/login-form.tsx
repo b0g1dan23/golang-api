@@ -22,6 +22,17 @@ import { FormEvent, useState } from "react"
 import { toast } from 'sonner'
 import { useSearchParams } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion";
+import z from "zod"
+
+const loginSchema = z.object({
+  email: z.email("Invalid email address"),
+  password: z.string().regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_\-+={}[\]|\\:;"'<>,.?/~`]).{8,}$/, "Password must be at least 8 characters long and include uppercase, lowercase, number, and special character."),
+})
+
+const signupSchema = loginSchema.extend({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+})
 
 export function LoginForm({
   className,
@@ -34,12 +45,60 @@ export function LoginForm({
   const searchParams = useSearchParams();
   const mode = searchParams.get('mode');
 
-  const handleSubmit = (ev: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (ev: FormEvent<HTMLFormElement>) => {
     ev.preventDefault();
 
-    toast.success('Logged in successfully!', {
-      description: `Welcome back, ${email}!`,
-    });
+    try {
+      if (mode === 'signup') {
+        signupSchema.parse({ firstName, lastName, email, password });
+        // Proceed with signup logic
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: 'include',
+          body: JSON.stringify({ firstname: firstName, lastname: lastName, email, password })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Server error');
+        }
+
+        toast.success('Signup successful!');
+      } else {
+        loginSchema.parse({ email, password });
+
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: 'include',
+          body: JSON.stringify({ email, password })
+        })
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Server error');
+        }
+
+        toast.success('Login successful!');
+      }
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        if (Array.isArray(err.issues)) {
+          err.issues.forEach((issue) => {
+            toast.error(issue.message);
+          })
+          return;
+        }
+      }
+      const e = err as Error;
+      toast.error(e.message);
+      return;
+    }
   }
 
   return (

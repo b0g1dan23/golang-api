@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -54,12 +55,19 @@ func saveUserInCookie(ctx *fiber.Ctx, loginRes *LoginResponse) error {
 	}
 
 	// Set secure cookies
+	var refreshTokenName, authTokenName string
+	refreshTokenName = "refresh_token"
+	authTokenName = "auth_token"
+	if os.Getenv("GO_ENV") != "development" {
+		refreshTokenName = "__Host-refresh_token"
+		authTokenName = "__Secure-auth_token"
+	}
 	setCookie(ctx, CookieData{
-		Name:  "__Host-refresh_token",
+		Name:  refreshTokenName,
 		Value: loginRes.RefreshToken,
 	})
 	setCookie(ctx, CookieData{
-		Name:  "__Secure-auth_token",
+		Name:  authTokenName,
 		Value: loginRes.AuthToken,
 	})
 
@@ -79,8 +87,12 @@ func setCookie(ctx *fiber.Ctx, data CookieData) {
 	cookie.Name = data.Name
 	cookie.Value = data.Value
 	cookie.HTTPOnly = true
-	cookie.Secure = os.Getenv("GO_ENV") != "development"
-	cookie.SameSite = "Strict"
+	cookie.Secure = false
+	cookie.SameSite = "Lax"
+	if os.Getenv("GO_ENV") != "development" {
+		cookie.Secure = true
+		cookie.SameSite = "Strict"
+	}
 	cookie.Path = "/"
 	cookie.MaxAge = int(constants.MaxLoginTokenAge / time.Second)
 
@@ -156,7 +168,11 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 		}
 
 		if refreshBody.RefreshToken == "" {
-			ctx.ClearCookie("__Host-refresh_token", "__Secure-auth_token")
+			if os.Getenv("GO_ENV") != "development" {
+				ctx.ClearCookie("__Host-refresh_token", "__Secure-auth_token")
+			} else {
+				ctx.ClearCookie("refresh_token", "auth_token")
+			}
 			return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
 				Error: "refresh token not provided",
 			})
@@ -189,7 +205,14 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 // @Router       /auth/refresh [post]
 // @Security     BearerAuth
 func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
-	oldToken := ctx.Cookies("__Host-refresh_token")
+	var refreshTokenName string
+	refreshTokenName = "refresh_token"
+	if os.Getenv("GO_ENV") != "development" {
+		refreshTokenName = "__Host-refresh_token"
+	}
+	log.Println(refreshTokenName)
+	oldToken := ctx.Cookies(refreshTokenName)
+	log.Println(oldToken)
 	if oldToken == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
 			Error: "no refresh token cookie found",
@@ -213,12 +236,18 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 		})
 	}
 
+	var authTokenName string
+	authTokenName = "auth_token"
+	if os.Getenv("GO_ENV") != "development" {
+		refreshTokenName = "__Host-refresh_token"
+		authTokenName = "__Secure-auth_token"
+	}
 	setCookie(ctx, CookieData{
-		Name:  "__Host-refresh_token",
+		Name:  refreshTokenName,
 		Value: loginRes.RefreshToken,
 	})
 	setCookie(ctx, CookieData{
-		Name:  "__Secure-auth_token",
+		Name:  authTokenName,
 		Value: loginRes.AuthToken,
 	})
 

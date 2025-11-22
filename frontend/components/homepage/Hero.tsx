@@ -21,7 +21,7 @@ const Hero = () => {
         </Button>
       </div>
 
-      <div className="bg-(--foreground)/20 rounded-4xl">
+      <div className="bg-foreground/20 rounded-4xl">
         <Image src={hero_image} alt="Hero Image" />
       </div>
     </section>

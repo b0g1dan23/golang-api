@@ -38,7 +38,13 @@ func main() {
 		TimeFormat: "2006-01-02 15:04:05",
 		TimeZone:   "Europe/Belgrade",
 	}))
-	app.Use(cors.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     os.Getenv("FRONTEND_URL"),
+		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
+		ExposeHeaders:    "Content-Length",
+		AllowCredentials: true,
+	}))
 
 	app.Get("/swagger/*", swagger.HandlerDefault)
 	user.RegisterRoutes(app)

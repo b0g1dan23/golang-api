@@ -20,8 +20,8 @@ func RegisterAuthRoutes(app *fiber.App) {
 		authGroup.Get("/google/callback", controller.GoogleCallback)
 	}
 	authGroup.Post("/register", controller.RegisterUser)
+	authGroup.Post("/refresh", controller.RefreshToken)
 
 	protected := authGroup.Group("", middleware.RequireRoles("user"))
 	protected.Post("/logout", controller.Logout)
-	protected.Post("/refresh", controller.RefreshToken)
 }
