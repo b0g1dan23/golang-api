@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -57,10 +56,10 @@ func saveUserInCookie(ctx *fiber.Ctx, loginRes *LoginResponse) error {
 	// Set secure cookies
 	var refreshTokenName, authTokenName string
 	refreshTokenName = "refresh_token"
-	authTokenName = "auth_token"
+	authTokenName = "access_token"
 	if os.Getenv("GO_ENV") != "development" {
 		refreshTokenName = "__Host-refresh_token"
-		authTokenName = "__Secure-auth_token"
+		authTokenName = "__Secure-access_token"
 	}
 	setCookie(ctx, CookieData{
 		Name:  refreshTokenName,
@@ -95,6 +94,19 @@ func setCookie(ctx *fiber.Ctx, data CookieData) {
 	}
 	cookie.Path = "/"
 	cookie.MaxAge = int(constants.MaxLoginTokenAge / time.Second)
+
+	ctx.Cookie(cookie)
+}
+
+func clearCookie(ctx *fiber.Ctx, name string) {
+	cookie := new(fiber.Cookie)
+	cookie.Name = name
+	cookie.Value = ""
+	cookie.HTTPOnly = true
+	cookie.Secure = false
+	cookie.SameSite = "Lax"
+	cookie.Path = "/"
+	cookie.MaxAge = -1
 
 	ctx.Cookie(cookie)
 }
@@ -164,26 +176,13 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 	refreshToken := ctx.Cookies(refreshTokenName)
 
 	if refreshToken == "" {
-		var refreshBody LogoutRequest
-
-		if err := ctx.BodyParser(&refreshBody); err != nil {
+		authHeader := ctx.Get("Authorization")
+		if authHeader == "" && !strings.HasPrefix(authHeader, "Bearer ") {
 			return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
-				Error: "no refresh token found",
+				Error: "no refresh token provided",
 			})
 		}
-
-		if refreshBody.RefreshToken == "" {
-			if os.Getenv("GO_ENV") != "development" {
-				ctx.ClearCookie("__Host-refresh_token", "__Secure-auth_token")
-			} else {
-				ctx.ClearCookie("refresh_token", "auth_token")
-			}
-			return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
-				Error: "refresh token not provided",
-			})
-		}
-
-		refreshToken = refreshBody.RefreshToken
+		refreshToken = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 
 	if err := c.AuthService.Logout(refreshToken); err != nil {
@@ -192,7 +191,14 @@ func (c *AuthController) Logout(ctx *fiber.Ctx) error {
 		})
 	}
 
-	ctx.ClearCookie("__Host-refresh_token", "__Secure-auth_token")
+	cookiesToClear := []string{"access_token", "refresh_token"}
+	if os.Getenv("GO_ENV") != "development" {
+		cookiesToClear = []string{"__Secure-access_token", "__Host-refresh_token"}
+	}
+
+	for _, cookieName := range cookiesToClear {
+		clearCookie(ctx, cookieName)
+	}
 
 	return ctx.SendStatus(fiber.StatusNoContent)
 }
@@ -214,9 +220,8 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 	if os.Getenv("GO_ENV") != "development" {
 		refreshTokenName = "__Host-refresh_token"
 	}
-	log.Println(refreshTokenName)
 	oldToken := ctx.Cookies(refreshTokenName)
-	log.Println(oldToken)
+
 	if oldToken == "" {
 		return ctx.Status(fiber.StatusBadRequest).JSON(api.ErrorResponse{
 			Error: "no refresh token cookie found",
@@ -241,10 +246,10 @@ func (c *AuthController) RefreshToken(ctx *fiber.Ctx) error {
 	}
 
 	var authTokenName string
-	authTokenName = "auth_token"
+	authTokenName = "access_token"
 	if os.Getenv("GO_ENV") != "development" {
 		refreshTokenName = "__Host-refresh_token"
-		authTokenName = "__Secure-auth_token"
+		authTokenName = "__Secure-access_token"
 	}
 	setCookie(ctx, CookieData{
 		Name:  refreshTokenName,
@@ -554,7 +559,7 @@ func (c *AuthController) ResetPassword(ctx *fiber.Ctx) error {
 // @Failure      401  {object}  api.ErrorResponse "Invalid or expired token"
 // @Router       /auth/parse-jwt [post]
 func (c *AuthController) ParseJWT(ctx *fiber.Ctx) error {
-	authToken := ctx.Cookies("auth_token")
+	authToken := ctx.Cookies("access_token")
 	claims, err := c.AuthService.GetJWTData(authToken)
 	if err != nil {
 		return ctx.Status(fiber.StatusUnauthorized).JSON(api.ErrorResponse{
@@ -562,4 +567,26 @@ func (c *AuthController) ParseJWT(ctx *fiber.Ctx) error {
 		})
 	}
 	return ctx.Status(fiber.StatusOK).JSON(claims)
+}
+
+// LoggedUser godoc
+// @Summary      Get logged-in user info
+// @Description  Retrieves information about the currently authenticated user
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  User "Logged-in user information"
+// @Failure      500  {object}  api.ErrorResponse "Failed to retrieve user data"
+// @Router       /auth/logged-user [get]
+func (c *AuthController) LoggedUser(ctx *fiber.Ctx) error {
+	userID := ctx.Locals("userID").(string)
+
+	user, err := c.AuthService.UserService.GetUserByID(userID)
+	if err != nil {
+		return ctx.Status(fiber.StatusInternalServerError).JSON(api.ErrorResponse{
+			Error: "failed to retrieve user data",
+		})
+	}
+
+	return ctx.Status(fiber.StatusOK).JSON(user)
 }

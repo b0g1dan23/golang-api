@@ -25,4 +25,5 @@ func RegisterAuthRoutes(app *fiber.App) {
 
 	protected := authGroup.Group("", middleware.RequireRoles("user", "admin", "owner"))
 	protected.Post("/logout", controller.Logout)
+	protected.Get("/me", controller.LoggedUser)
 }
