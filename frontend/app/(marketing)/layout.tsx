@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Navigation from "@/components/Navigation";
 import Footer from "@/components/Footer";
-import { getLoggedUser } from "@/actions/user.actions";
-import { decodeVerifyAuthToken, getTokensFromCookies } from "@/actions/utils";
+import { ServerClient } from "@/sdk/backend/server-client";
 import { User } from "@/models/user";
 
 export const metadata: Metadata = {
@@ -15,16 +14,9 @@ export default async function MarketingLayout({
 }: Readonly<{
     children: React.ReactNode;
 }>) {
-    let user: User | null = null;
-    try {
-        user = await getLoggedUser();
-    }
-    catch (err) {
-        user = null;
-    }
     return (
         <>
-            <Navigation user={user} />
+            <Navigation />
             <div className="container">
                 {children}
             </div>

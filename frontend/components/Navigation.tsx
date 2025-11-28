@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { Button } from "./ui/button";
 import Logo from "./ui/Logo";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { IoIosMenu } from "react-icons/io";
 import { useEffect, useState } from "react";
 import { IoClose } from "react-icons/io5";
-import { User } from "@/models/user";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "./ui/dropdown-menu";
-import { logout } from "@/actions/auth.actions";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { toast } from "sonner";
+import { BrowserClient } from "@/sdk/backend/browser-client";
+import { User } from "@/models/user";
 
 export interface NavigationItem {
   label: string;
@@ -23,13 +23,21 @@ export const navigationData: NavigationItem[] = [
   { label: "Sign up", href: "/login?mode=signup", authenticated: false },
 ];
 
-const Navigation = ({ user }: { user: User | null }) => {
+const Navigation = () => {
   const path = usePathname();
   const [showMenu, setShowMenu] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
-    setIsLoaded(true);
+    const fetchUser = async () => {
+      const browserClient = new BrowserClient();
+      const user = await browserClient.getUser();
+      setUser(user);
+      setIsLoaded(true);
+    };
+    fetchUser();
   }, []);
 
   return (
@@ -91,7 +99,11 @@ const Navigation = ({ user }: { user: User | null }) => {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={async () => {
                     try {
-                      await logout();
+                      const browserClient = new BrowserClient();
+                      await browserClient.auth.signOut();
+                      toast.success('Logged out successfully!');
+                      router.push('/');
+                      setUser(null);
                     } catch (err) {
                       const e = err as Error;
                       toast.error(e.message);

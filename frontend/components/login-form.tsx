@@ -23,6 +23,8 @@ import { toast } from 'sonner'
 import { useRouter, useSearchParams } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion";
 import z from "zod"
+import { BrowserClient } from "@/sdk/backend/browser-client"
+import { Spinner } from "./ui/spinner"
 
 const loginSchema = z.object({
   email: z.email("Invalid email address"),
@@ -42,49 +44,28 @@ export function LoginForm({
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
   const searchParams = useSearchParams();
   const mode = searchParams.get('mode');
   const router = useRouter();
 
   const handleSubmit = async (ev: FormEvent<HTMLFormElement>) => {
     ev.preventDefault();
+    const backend = new BrowserClient();
 
     try {
+      setLoading(true);
       if (mode === 'signup') {
         signupSchema.parse({ firstName, lastName, email, password });
-        // Proceed with signup logic
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: 'include',
-          body: JSON.stringify({ firstname: firstName, lastname: lastName, email, password })
-        });
 
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Server error');
-        }
+        await backend.auth.signUpWithPassword({ firstname: firstName, lastname: lastName, email, password });
 
         toast.success('Signup successful!');
         router.push('/app');
       } else {
         loginSchema.parse({ email, password });
 
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: 'include',
-          body: JSON.stringify({ email, password })
-        })
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Server error');
-        }
+        await backend.auth.signInWithPassword({ email, password });
 
         toast.success('Login successful!');
         router.push('/app');
@@ -101,6 +82,8 @@ export function LoginForm({
       const e = err as Error;
       toast.error(e.message);
       return;
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -176,7 +159,7 @@ export function LoginForm({
                 </FieldDescription>
               </Field>
               <Field>
-                <Button type="submit">Login</Button>
+                <Button type="submit"> {loading ? <Spinner /> : mode === 'signup' ? 'Sign Up' : 'Login'}</Button>
               </Field>
             </FieldGroup>
           </form>
